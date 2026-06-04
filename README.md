@@ -12,8 +12,10 @@ and arrange them spatially.
 
 1. Install from the [Marketplace](https://marketplace.visualstudio.com/items?itemName=chamchi.jam-desk).
 2. Run **“Jam Desk: Open Canvas”** (command palette or editor tab bar button).
-3. Add a terminal from the toolbar and launch your agent (e.g. `claude`).
-4. Add more terminals, notes, and file cards — group them into regions.
+3. Hit the **Claude** or **Codex** toolbar button to open a terminal with the
+   agent already running (or add a plain terminal and launch it yourself).
+4. Add more terminals, notes, and file cards — group them into regions, and
+   tile them with the 2-split / 3-split / 2×2 layout buttons.
 
 ## Terminals & coding agents
 
@@ -44,11 +46,13 @@ and arrange them spatially.
 | Action                          | Shortcut / control                           |
 | ------------------------------- | -------------------------------------------- |
 | Add terminal / note / file card | toolbar, or right-click                      |
+| Launch Claude Code / Codex      | toolbar (one-click terminal + agent)         |
 | Zoom                            | mouse wheel, ⌘/Ctrl + scroll                 |
 | Pan                             | trackpad, right/middle-drag, or hold `Space` |
 | Fit to screen                   | `Shift+1`                                    |
 | Group into region               | toolbar ▢                                    |
 | Auto-layout                     | toolbar ▦                                    |
+| Tile 2-split / 3-split / 2×2    | toolbar (tiles selection, else all cards)    |
 | Undo / redo                     | `⌘/Ctrl+Z` / `⌘/Ctrl+Shift+Z`                |
 
 ## Development

@@ -43,6 +43,11 @@ export interface CanvasNodeState {
   /** Optional starting working directory for `terminal` nodes (absolute or
    *  workspace-relative). Defaults to the workspace root on the host. */
   cwd?: string
+  /** Ephemeral: a command typed into a freshly-spawned `terminal` once its shell
+   *  settles (used by the Claude Code / Codex launcher buttons). Consumed once by
+   *  the TerminalController and stripped from serialization + history, so it never
+   *  persists or re-runs on reload/undo. */
+  initialCommand?: string
   /** Display title — note heading or file basename. */
   title: string
   /** Optional accent color (CSS color string). */

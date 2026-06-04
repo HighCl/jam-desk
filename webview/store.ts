@@ -16,6 +16,7 @@ import {
   ZOOM_DEFAULT,
   CANVAS_GRID_SIZE,
   ACCENT_COLORS,
+  NODE_MINIMUM_SIZES,
 } from './types'
 import type {
   Point,
@@ -81,6 +82,8 @@ export interface NewNodeProps {
   filePath?: string
   cwd?: string
   color?: string
+  /** A command auto-run in a new terminal once its shell settles (agent launchers). */
+  initialCommand?: string
 }
 
 // -----------------------------------------------------------------------------
@@ -177,10 +180,17 @@ export class CanvasStore {
     const out: Record<CanvasNodeId, CanvasNodeState> = {}
     for (const [id, node] of Object.entries(nodes)) {
       if (node.animationState === 'exiting') continue
-      out[id] =
+      let n =
         node.animationState && node.animationState !== 'idle'
-          ? { ...node, animationState: 'idle' }
+          ? { ...node, animationState: 'idle' as const }
           : node
+      // A one-shot launcher command is already consumed by the live terminal;
+      // drop it so a later undo→redo does not re-spawn the agent.
+      if (n.initialCommand != null) {
+        n = { ...n }
+        delete n.initialCommand
+      }
+      out[id] = n
     }
     return out
   }
@@ -257,6 +267,7 @@ export class CanvasStore {
       filePath: props.filePath,
       cwd: props.cwd,
       color: props.color,
+      initialCommand: props.initialCommand,
       origin,
       size: sz,
       zOrder: state.nextZOrder,
@@ -964,6 +975,60 @@ export class CanvasStore {
     this.zoomToFit()
   }
 
+  /**
+   * Tile nodes into a fixed `cols × rows` grid that fills the current viewport,
+   * like a window manager's split layouts (2-split, 3-split, 2×2). Tiles the
+   * current selection if any, otherwise every node. Cells keep their on-screen
+   * proportions regardless of zoom; nodes past `cols × rows` wrap into extra rows
+   * below (same cell size), so a 2×2 still reads as 2×2 with more than four cards.
+   */
+  tileLayout(cols: number, rows: number): void {
+    const state = this.data
+    const selected = Object.values(state.nodes).filter((n) => state.selectedNodeIds.has(n.id))
+    const pool = selected.length > 0 ? selected : Object.values(state.nodes)
+    const targets = pool
+      .filter((n) => n.animationState !== 'exiting')
+      .sort((a, b) => a.creationIndex - b.creationIndex)
+    if (targets.length === 0) return
+
+    // Visible viewport in canvas space (so the tiling fills the screen at any zoom).
+    const cs = state.containerSize
+    const zoom = state.zoomLevel
+    const hasViewport = cs.width > 0 && cs.height > 0
+    const tl = hasViewport ? this.viewToCanvas({ x: 0, y: 0 }) : { x: 100, y: 100 }
+    const br = hasViewport
+      ? this.viewToCanvas({ x: cs.width, y: cs.height })
+      : { x: 100 + 1200, y: 100 + 800 }
+
+    // Keep an ~constant on-screen gap by converting it to canvas units.
+    const gap = 12 / zoom
+    const areaX = tl.x + gap
+    const areaY = tl.y + gap
+    const areaW = Math.max(br.x - tl.x - gap * 2, 100)
+    const areaH = Math.max(br.y - tl.y - gap * 2, 100)
+
+    const cellW = (areaW - gap * (cols - 1)) / cols
+    const cellH = (areaH - gap * (rows - 1)) / rows
+    const w = Math.max(cellW, NODE_MINIMUM_SIZES.terminal.width)
+    const h = Math.max(cellH, NODE_MINIMUM_SIZES.terminal.height)
+
+    this.pushHistory()
+    const updated = { ...state.nodes }
+    targets.forEach((node, i) => {
+      const col = i % cols
+      const row = Math.floor(i / cols)
+      updated[node.id] = {
+        ...updated[node.id],
+        origin: { x: areaX + col * (cellW + gap), y: areaY + row * (cellH + gap) },
+        size: { width: w, height: h },
+        // Drop any stale maximize anchor so the maximize toggle stays consistent.
+        preMaximizeOrigin: undefined,
+        preMaximizeSize: undefined,
+      }
+    })
+    this.set({ nodes: updated })
+  }
+
   // ---- Region management ----------------------------------------------------
 
   addRegion(label: string, origin: Point, size: Size, color?: string): string {
@@ -1197,7 +1262,10 @@ export class CanvasStore {
     const nodes: Record<CanvasNodeId, CanvasNodeState> = {}
     for (const [id, node] of Object.entries(state.nodes)) {
       if (node.animationState === 'exiting') continue
-      nodes[id] = { ...node, animationState: 'idle' }
+      // `initialCommand` is a one-shot launcher hint — never persist it, or the
+      // agent would re-run every time the workspace reloads.
+      const { initialCommand: _omit, ...rest } = node
+      nodes[id] = { ...rest, animationState: 'idle' }
     }
     return {
       version: 2,

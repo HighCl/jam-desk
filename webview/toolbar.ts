@@ -52,6 +52,12 @@ export class CanvasToolbar {
     const addTerminalBtn = this.button('Terminal', icons.terminal, t('addTerminal'), () => {
       this.store.addNode('terminal')
     })
+    const launchClaudeBtn = this.button('Claude', icons.sparkles, t('launchClaude'), () => {
+      this.store.addNode('terminal', { initialCommand: 'claude' })
+    })
+    const launchCodexBtn = this.button('Codex', icons.brandOpenai, t('launchCodex'), () => {
+      this.store.addNode('terminal', { initialCommand: 'codex' })
+    })
     const addFileBtn = this.button('File', icons.filePlus, t('addFileNode'), () => {
       this.hooks.onAddFile?.()
     })
@@ -80,6 +86,15 @@ export class CanvasToolbar {
     const layoutBtn = this.button('Layout', icons.layoutGrid, t('autoLayout'), () =>
       this.store.autoLayout(),
     )
+    const tileSplit2Btn = this.button('Split2', icons.layoutSplit2, t('tileSplit2'), () =>
+      this.store.tileLayout(2, 1),
+    )
+    const tileSplit3Btn = this.button('Split3', icons.layoutSplit3, t('tileSplit3'), () =>
+      this.store.tileLayout(3, 1),
+    )
+    const tileGrid2x2Btn = this.button('Grid2x2', icons.layoutGrid2x2, t('tileGrid2x2'), () =>
+      this.store.tileLayout(2, 2),
+    )
     const groupBtn = this.button('Group', icons.boxMultiple, t('groupSelection'), () =>
       this.store.groupSelectedIntoRegion(),
     )
@@ -106,6 +121,8 @@ export class CanvasToolbar {
       this.sep(),
       addNoteBtn,
       addTerminalBtn,
+      launchClaudeBtn,
+      launchCodexBtn,
       addFileBtn,
       addCurrentBtn,
       this.sep(),
@@ -116,6 +133,9 @@ export class CanvasToolbar {
       resetBtn,
       this.sep(),
       layoutBtn,
+      tileSplit2Btn,
+      tileSplit3Btn,
+      tileGrid2x2Btn,
       groupBtn,
       this.sep(),
       this.undoBtn,

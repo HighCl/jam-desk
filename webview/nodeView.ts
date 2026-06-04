@@ -274,11 +274,17 @@ export class CanvasView {
       host.className = 'cnode-terminal'
       content.appendChild(host)
       if (this.hooks.terminals) {
-        const ctrl = new TerminalController(node.id, this.hooks.terminals, node.cwd, {
-          onAgent: (agent) => this.store.updateTerminalAgent(node.id, { agent }),
-          onTitleChange: (title) => this.store.updateTerminalAgent(node.id, { oscTitle: title }),
-          onActivity: (activity) => this.store.updateTerminalAgent(node.id, { activity }),
-        })
+        const ctrl = new TerminalController(
+          node.id,
+          this.hooks.terminals,
+          node.cwd,
+          {
+            onAgent: (agent) => this.store.updateTerminalAgent(node.id, { agent }),
+            onTitleChange: (title) => this.store.updateTerminalAgent(node.id, { oscTitle: title }),
+            onActivity: (activity) => this.store.updateTerminalAgent(node.id, { activity }),
+          },
+          node.initialCommand,
+        )
         el.terminal = ctrl
         // Mount after this element is attached + sized so the first fit() is correct.
         requestAnimationFrame(() => ctrl.mount(host))

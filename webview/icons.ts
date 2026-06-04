@@ -26,6 +26,23 @@ import arrowsMinimize from '@tabler/icons/outline/arrows-minimize.svg'
 import x from '@tabler/icons/outline/x.svg'
 import file from '@tabler/icons/outline/file.svg'
 import gripVertical from '@tabler/icons/outline/grip-vertical.svg'
+import sparkles from '@tabler/icons/outline/sparkles.svg'
+import brandOpenai from '@tabler/icons/outline/brand-openai.svg'
+
+// Split-layout glyphs drawn inline (2 columns / 3 columns / 2×2) so they read
+// unambiguously and stay distinct from the auto-layout grid icon. Tabler style:
+// 24×24, no fill, stroke = currentColor — sized by `.toolbar-btn svg` in CSS.
+const SVG_OPEN =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"' +
+  ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+const layoutSplit2 =
+  `${SVG_OPEN}<rect x="4" y="4" width="16" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/></svg>`
+const layoutSplit3 =
+  `${SVG_OPEN}<rect x="4" y="4" width="16" height="16" rx="2"/>` +
+  `<line x1="9.33" y1="4" x2="9.33" y2="20"/><line x1="14.67" y1="4" x2="14.67" y2="20"/></svg>`
+const layoutGrid2x2 =
+  `${SVG_OPEN}<rect x="4" y="4" width="16" height="16" rx="2"/>` +
+  `<line x1="12" y1="4" x2="12" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>`
 
 export const icons = {
   // Toolbar — tools
@@ -36,6 +53,9 @@ export const icons = {
   terminal,
   filePlus,
   fileImport,
+  // Toolbar — agent launchers
+  sparkles,
+  brandOpenai,
   // Toolbar — view
   zoomOut,
   zoomIn,
@@ -43,6 +63,9 @@ export const icons = {
   restore,
   // Toolbar — arrange / history / minimap
   layoutGrid,
+  layoutSplit2,
+  layoutSplit3,
+  layoutGrid2x2,
   boxMultiple,
   arrowBackUp,
   arrowForwardUp,

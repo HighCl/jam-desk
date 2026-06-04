@@ -90,6 +90,10 @@ const OSC9_WAITING_RE = /^(approval requested|codex wants to edit|plan mode prom
 /** Trailing scan delay after PTY output settles (also the max scan rate). */
 const ACTIVITY_SCAN_MS = 250
 
+/** After a launched terminal's startup output settles, wait this long before
+ * typing its command, so the shell prompt is ready to receive it. */
+const INITIAL_COMMAND_SETTLE_MS = 500
+
 const CODEX_WAITING_TITLE_RE = /^\[\s*[!.]\s*\]\s*action required/i
 const CLAUDE_IDLE_TITLE_RE = /^[\u2733\u2736\u273b\u273d]\s/
 
@@ -246,13 +250,19 @@ export class TerminalController {
   private progressWorking = false
   /** Last screen-scan verdict; null until the first scan after attach. */
   private scanState: AgentActivity | null = null
+  /** Pending one-shot launcher command (Claude Code / Codex buttons); cleared
+   * once typed into the shell, or cancelled if the user types first. */
+  private initialCommand: string | undefined
+  private initialCommandTimer: number | null = null
 
   constructor(
     private id: string,
     private bridge: TerminalBridge,
     private cwd?: string,
     private hooks: TerminalControllerHooks = {},
+    initialCommand?: string,
   ) {
+    this.initialCommand = initialCommand
     ensureXtermCss()
     this.term = new Terminal({
       theme: readTheme(),
@@ -329,6 +339,8 @@ export class TerminalController {
           if (!this.disposed) this.bridge.ack(this.id, data.length)
         })
         this.scheduleActivityScan()
+        // Push the launcher command out until startup output stops streaming.
+        this.scheduleInitialCommand()
       },
       onExit: (code) => {
         if (this.disposed) return
@@ -340,8 +352,17 @@ export class TerminalController {
     const rows = this.term.rows || 24
     this.bridge.create(this.id, cols, rows, this.cwd)
 
+    // Fallback for a shell that prints nothing on startup: run anyway after a beat.
+    if (this.initialCommand != null) this.scheduleInitialCommand()
+
     this.term.onData((data) => {
       if (this.disposed) return
+      // The user started typing before the launcher fired — let them drive.
+      // Ignore automatic terminal replies, which xterm also routes through
+      // onData (cursor-position reports `ESC[…R`, device-attributes `ESC[…c`):
+      // PSReadLine probes terminal capabilities on startup, and treating its
+      // reply as a keystroke would cancel the launcher before it ever runs.
+      if (this.initialCommand != null && !data.startsWith('\x1b')) this.cancelInitialCommand()
       // A keystroke answers whatever the OSC 9 notification was about; let the
       // next scan decide whether a dialog is still up.
       if (this.osc9Waiting) {
@@ -375,6 +396,32 @@ export class TerminalController {
       return
     }
     this.term.focus()
+  }
+
+  // ---- Launcher command -----------------------------------------------------
+
+  /** (Re)arm the settle timer that types the one-shot launcher command into the
+   * shell. Each call resets it, so the command fires only after output quiets. */
+  private scheduleInitialCommand(): void {
+    if (this.initialCommand == null || this.disposed) return
+    if (this.initialCommandTimer != null) clearTimeout(this.initialCommandTimer)
+    this.initialCommandTimer = window.setTimeout(() => {
+      this.initialCommandTimer = null
+      const cmd = this.initialCommand
+      if (cmd == null || this.disposed) return
+      this.initialCommand = undefined
+      // Route through observeInput too, so the agent badge can light up at once.
+      this.observeInput(cmd + '\r')
+      this.bridge.input(this.id, cmd + '\r')
+    }, INITIAL_COMMAND_SETTLE_MS)
+  }
+
+  private cancelInitialCommand(): void {
+    if (this.initialCommandTimer != null) {
+      clearTimeout(this.initialCommandTimer)
+      this.initialCommandTimer = null
+    }
+    this.initialCommand = undefined
   }
 
   // ---- Coding-agent activity ------------------------------------------------
@@ -514,6 +561,10 @@ export class TerminalController {
     if (this.scanTimer != null) {
       clearTimeout(this.scanTimer)
       this.scanTimer = null
+    }
+    if (this.initialCommandTimer != null) {
+      clearTimeout(this.initialCommandTimer)
+      this.initialCommandTimer = null
     }
     if (this.fitRaf) cancelAnimationFrame(this.fitRaf)
     this.ro?.disconnect()
