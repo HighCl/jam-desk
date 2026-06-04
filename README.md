@@ -1,3 +1,5 @@
+<img width="743" height="508" alt="" src="https://github.com/user-attachments/assets/63316098-ff46-47ab-ab07-811c503e84b2" />
+
 # Jam Desk — Infinite Canvas for VS Code
 
 An infinite, zoomable **spatial canvas** inside VS Code. Pan, zoom, and place
