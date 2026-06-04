@@ -1,6 +1,6 @@
 // =============================================================================
 // Coordinate transforms — pure functions for canvas <-> view conversions.
-// Ported verbatim from Cate (renderer/lib/coordinates.ts).
+// Ported verbatim from the upstream IDE (renderer/lib/coordinates.ts).
 //
 //   viewPoint   = canvasPoint * zoom + offset
 //   canvasPoint = (viewPoint - offset) / zoom

@@ -1,6 +1,6 @@
 // =============================================================================
 // Canvas layout engine — pure layout/snapping functions.
-// Ported faithfully from Cate (renderer/canvas/layoutEngine.ts), with panel
+// Ported faithfully from the upstream IDE (renderer/canvas/layoutEngine.ts), with panel
 // types collapsed to the webview's NodeKind.
 // =============================================================================
 
@@ -231,7 +231,7 @@ export function minimumSize(kind: NodeKind): Size {
  * Find a free position for a new node that does not overlap any existing node.
  * From the reference node (focused, else most recently created) search outward
  * in the four cardinal directions, jumping past obstacles, and return the slot
- * whose center is closest to the reference's center. Ported from Cate's
+ * whose center is closest to the reference's center. Ported from the upstream IDE's
  * canvasStore.findFreePosition.
  */
 export function findFreePosition(
@@ -325,7 +325,7 @@ export interface SharedBorder {
 
 /**
  * Find nodes whose opposite edge aligns with the given node's edge (a shared
- * border) and that actually overlap perpendicularly. Ported from Cate.
+ * border) and that actually overlap perpendicularly. Ported from the upstream IDE.
  */
 export function findSharedBorders(
   nodeId: string,
@@ -400,7 +400,7 @@ export interface AutoLayoutAllResult {
 /**
  * Choose a target row-wrap width that produces a bbox close to the container's
  * aspect ratio. Falls back to ≈ √(totalArea) (square) when aspect is unknown.
- * Always at least as wide as the widest single item. Ported from Cate.
+ * Always at least as wide as the widest single item. Ported from the upstream IDE.
  */
 function chooseTargetWidth(items: { size: Size }[], gap: number, aspect: number): number {
   if (items.length === 0) return 0
@@ -417,7 +417,7 @@ function chooseTargetWidth(items: { size: Size }[], gap: number, aspect: number)
  * Layout everything on the canvas in a tidy masonry grid. Nodes contained in a
  * region are grid-packed inside that region (which is resized to fit), then free
  * nodes and regions (as super-items) are packed into a top-level grid. Existing
- * item sizes are preserved. Ported faithfully from Cate's autoLayoutAll.
+ * item sizes are preserved. Ported faithfully from the upstream IDE's autoLayoutAll.
  */
 export function autoLayoutAll(input: AutoLayoutAllInput): AutoLayoutAllResult {
   const { nodes, regions, containerWidth } = input

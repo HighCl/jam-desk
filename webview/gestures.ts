@@ -1,7 +1,7 @@
 // =============================================================================
 // gestures — pointer-driven node/region drag & resize.
 //
-// These are imperative ports of Cate's drag/resize behavior, decoupled from the
+// These are imperative ports of the upstream IDE's drag/resize behavior, decoupled from the
 // dock/cross-window machinery (which does not apply to a single webview):
 //
 //  - beginNodeDrag   : move a node (and any co-selected nodes) with live
@@ -9,7 +9,7 @@
 //                      region detection.
 //  - beginNodeResize : edge/corner resize with shared-border synchronized
 //                      resize, min-size clamping, grab-point re-anchoring, and
-//                      snap-on-release. Ported from Cate's useNodeResize.ts.
+//                      snap-on-release. Ported from the upstream IDE's useNodeResize.ts.
 //  - beginRegionDrag : move a region (carrying its contained nodes).
 //  - beginRegionResize : resize a region.
 //
@@ -34,7 +34,7 @@ import { settings } from './settings'
 
 const REGION_MIN_SIZE: Size = { width: 100, height: 100 }
 
-/** Radial dead-zone before a press becomes a drag (Cate's DEAD_ZONE_PX). */
+/** Radial dead-zone before a press becomes a drag (the upstream IDE's DEAD_ZONE_PX). */
 const DRAG_DEAD_ZONE_PX = 4
 
 // -----------------------------------------------------------------------------
@@ -49,7 +49,7 @@ function nodeRect(o: Point, s: Size): Rect {
 /**
  * The region that "contains" a node box for drop purposes: the first region
  * (in iteration order) whose bbox overlaps the node bbox by more than 50% of the
- * node's area. Mirrors Cate's applyRegionContainment (drag/commit.ts).
+ * node's area. Mirrors the upstream IDE's applyRegionContainment (drag/commit.ts).
  */
 function regionContainingBox(origin: Point, size: Size, regions: CanvasRegion[]): string | null {
   const nodeArea = size.width * size.height
@@ -72,7 +72,7 @@ function regionContainingBox(origin: Point, size: Size, regions: CanvasRegion[])
  * Begin dragging a node. The primary node snaps to the grid and to neighbor
  * edges (with live alignment guides); any other co-selected nodes translate by
  * the same applied delta. On release, each dragged node is (re)assigned to the
- * region whose body contains its center, matching Cate's containment model.
+ * region whose body contains its center, matching the upstream IDE's containment model.
  */
 export function beginNodeDrag(store: CanvasStore, nodeId: string, e: MouseEvent): void {
   e.preventDefault()
@@ -184,7 +184,7 @@ export function beginNodeDrag(store: CanvasStore, nodeId: string, e: MouseEvent)
 }
 
 // -----------------------------------------------------------------------------
-// Node resize (shared-border synchronized) — ported from Cate useNodeResize.ts
+// Node resize (shared-border synchronized) — ported from the upstream IDE's useNodeResize.ts
 // -----------------------------------------------------------------------------
 
 function isCardinalEdge(edge: ResizeEdge): edge is 'top' | 'bottom' | 'left' | 'right' {
@@ -457,7 +457,7 @@ export function beginRegionDrag(store: CanvasStore, regionId: string, e: MouseEv
   const startOrigin: Point = { ...region.origin }
 
   // Multi-drag: if other regions are co-selected, or any selected node lives
-  // outside this region, drag the whole selection together (matches Cate). The
+  // outside this region, drag the whole selection together (matches the upstream IDE). The
   // selection is fixed at mousedown (set by the view before this runs).
   const hasOtherRegions = state0.selectedRegionIds.size > 1
   let hasExternalNodes = false
@@ -494,7 +494,7 @@ export function beginRegionDrag(store: CanvasStore, regionId: string, e: MouseEv
     }
 
     // Multi-drag: translate the whole selection by the incremental delta (no
-    // snapping, mirroring Cate). Each entity moves once — no region→child cascade.
+    // snapping, mirroring the upstream IDE). Each entity moves once — no region→child cascade.
     if (isMultiDrag) {
       const incrDx = (ev.clientX - lastClientX) / z
       const incrDy = (ev.clientY - lastClientY) / z

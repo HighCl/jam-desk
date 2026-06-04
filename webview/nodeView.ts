@@ -62,7 +62,7 @@ interface NodeElements {
 }
 
 /** Exit-animation duration before the node is removed from the store/DOM.
- * Matches Cate's setTimeout(200) finalize and comfortably outlasts the 0.18s
+ * Matches the upstream IDE's setTimeout(200) finalize and comfortably outlasts the 0.18s
  * CSS opacity/transform transition. */
 const EXIT_ANIM_MS = 200
 

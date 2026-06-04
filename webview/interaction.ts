@@ -1,6 +1,6 @@
 // =============================================================================
 // CanvasInteraction — pan / zoom / inertia / marquee / context-menu handling
-// for the canvas surface. Ported from Cate's useCanvasInteraction.ts, with
+// for the canvas surface. Ported from the upstream IDE's useCanvasInteraction.ts, with
 // React refs collapsed to instance fields and native DOM events.
 //
 //  - Trackpad two-finger scroll  → pan        (rAF-throttled)

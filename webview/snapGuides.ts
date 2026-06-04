@@ -1,7 +1,7 @@
 // =============================================================================
 // SnapGuidesLayer — renders alignment guide lines inside the world transform
 // at canvas-space positions. Edge guides are solid; center guides are dashed.
-// Ported from Cate's SnapGuides.tsx.
+// Ported from the upstream IDE's SnapGuides.tsx.
 // =============================================================================
 
 import type { CanvasStore } from './store'

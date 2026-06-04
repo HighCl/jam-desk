@@ -1,10 +1,10 @@
 // =============================================================================
-// Cate Canvas — VS Code extension host.
+// Jam Desk — VS Code extension host.
 //
 // Owns a single WebviewPanel hosting the infinite canvas, the message protocol
 // to/from the webview, document persistence (workspaceState), settings relay,
 // and the command surface (open, add note/file, fit, layout, reset, export,
-// import, clear). Extracted from the Cate IDE.
+// import, clear). Extracted from the upstream IDE.
 // =============================================================================
 
 import * as vscode from 'vscode'
@@ -13,8 +13,8 @@ import * as os from 'os'
 import * as fs from 'fs'
 import * as nodePty from 'node-pty'
 
-const DOCUMENT_KEY = 'cateCanvas.document'
-const VIEW_TYPE = 'cateCanvas.canvas'
+const DOCUMENT_KEY = 'jamDesk.document'
+const VIEW_TYPE = 'jamDesk.canvas'
 
 interface CanvasDocument {
   version: number
@@ -47,19 +47,19 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('cateCanvas.open', open),
-    vscode.commands.registerCommand('cateCanvas.addNote', () => relay('addNote')),
-    vscode.commands.registerCommand('cateCanvas.addTerminal', () => relay('addTerminal')),
-    vscode.commands.registerCommand('cateCanvas.addFile', () => relay('addFile')),
-    vscode.commands.registerCommand('cateCanvas.addCurrentFile', () => relay('addCurrentFile')),
-    vscode.commands.registerCommand('cateCanvas.fitToScreen', () => relay('fitToScreen')),
-    vscode.commands.registerCommand('cateCanvas.autoLayout', () => relay('autoLayout')),
-    vscode.commands.registerCommand('cateCanvas.resetView', () => relay('resetView')),
-    vscode.commands.registerCommand('cateCanvas.export', () => relay('export')),
-    vscode.commands.registerCommand('cateCanvas.import', () => relay('import')),
-    vscode.commands.registerCommand('cateCanvas.clear', () => relay('clear')),
+    vscode.commands.registerCommand('jamDesk.open', open),
+    vscode.commands.registerCommand('jamDesk.addNote', () => relay('addNote')),
+    vscode.commands.registerCommand('jamDesk.addTerminal', () => relay('addTerminal')),
+    vscode.commands.registerCommand('jamDesk.addFile', () => relay('addFile')),
+    vscode.commands.registerCommand('jamDesk.addCurrentFile', () => relay('addCurrentFile')),
+    vscode.commands.registerCommand('jamDesk.fitToScreen', () => relay('fitToScreen')),
+    vscode.commands.registerCommand('jamDesk.autoLayout', () => relay('autoLayout')),
+    vscode.commands.registerCommand('jamDesk.resetView', () => relay('resetView')),
+    vscode.commands.registerCommand('jamDesk.export', () => relay('export')),
+    vscode.commands.registerCommand('jamDesk.import', () => relay('import')),
+    vscode.commands.registerCommand('jamDesk.clear', () => relay('clear')),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('cateCanvas')) panel?.post(settingsMessage())
+      if (e.affectsConfiguration('jamDesk')) panel?.post(settingsMessage())
     }),
   )
 }
@@ -73,7 +73,7 @@ export function deactivate(): void {
 // -----------------------------------------------------------------------------
 
 function settingsMessage() {
-  const cfg = vscode.workspace.getConfiguration('cateCanvas')
+  const cfg = vscode.workspace.getConfiguration('jamDesk')
   return {
     type: 'settings' as const,
     settings: {
@@ -88,7 +88,7 @@ function settingsMessage() {
 // -----------------------------------------------------------------------------
 // Terminal backend — one node-pty shell per terminal node, keyed by node id.
 //
-// Mirrors Cate's main-process terminal IPC (src/main/ipc/terminal.ts), trimmed
+// Mirrors the upstream IDE's main-process terminal IPC (src/main/ipc/terminal.ts), trimmed
 // to the essentials: spawn / write / resize / kill, with output streamed back to
 // the webview. PTYs are killed when their node is removed, when a node id is
 // re-created (e.g. after a webview reload), and when the panel is disposed.
@@ -272,7 +272,7 @@ class CanvasPanel {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
-      'Cate Canvas',
+      'Jam Desk',
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -285,7 +285,7 @@ class CanvasPanel {
     )
 
     this.panel.webview.html = this.html()
-    vscode.commands.executeCommand('setContext', 'cateCanvas.active', true)
+    vscode.commands.executeCommand('setContext', 'jamDesk.active', true)
 
     this.panel.webview.onDidReceiveMessage(
       (msg) => this.onMessage(msg),
@@ -295,7 +295,7 @@ class CanvasPanel {
 
     this.panel.onDidChangeViewState(
       () => {
-        vscode.commands.executeCommand('setContext', 'cateCanvas.active', this.panel.active)
+        vscode.commands.executeCommand('setContext', 'jamDesk.active', this.panel.active)
       },
       null,
       this.disposables,
@@ -317,7 +317,7 @@ class CanvasPanel {
   }
 
   dispose(): void {
-    vscode.commands.executeCommand('setContext', 'cateCanvas.active', false)
+    vscode.commands.executeCommand('setContext', 'jamDesk.active', false)
     this.terminals.disposeAll()
     for (const cb of this.disposeCallbacks.splice(0)) cb()
     while (this.disposables.length) this.disposables.pop()?.dispose()
@@ -401,7 +401,7 @@ class CanvasPanel {
       const doc = await vscode.workspace.openTextDocument(uri)
       await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside })
     } catch (err) {
-      vscode.window.showErrorMessage(`Cate Canvas: 파일을 열 수 없습니다 — ${String(err)}`)
+      vscode.window.showErrorMessage(`Jam Desk: 파일을 열 수 없습니다 — ${String(err)}`)
     }
   }
 
@@ -425,7 +425,7 @@ class CanvasPanel {
   private addCurrentFile(): void {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
-      vscode.window.showInformationMessage('Cate Canvas: 활성 편집기가 없습니다.')
+      vscode.window.showInformationMessage('Jam Desk: 활성 편집기가 없습니다.')
       return
     }
     const uri = editor.document.uri
@@ -447,7 +447,7 @@ class CanvasPanel {
     if (!target) return
     const data = Buffer.from(JSON.stringify(document, null, 2), 'utf8')
     await vscode.workspace.fs.writeFile(target, data)
-    vscode.window.showInformationMessage('Cate Canvas: 캔버스를 내보냈습니다.')
+    vscode.window.showInformationMessage('Jam Desk: 캔버스를 내보냈습니다.')
   }
 
   private async importDocument(): Promise<void> {
@@ -463,7 +463,7 @@ class CanvasPanel {
       const document = JSON.parse(Buffer.from(bytes).toString('utf8'))
       this.post({ type: 'loadDocument', document })
     } catch (err) {
-      vscode.window.showErrorMessage(`Cate Canvas: 가져오기 실패 — ${String(err)}`)
+      vscode.window.showErrorMessage(`Jam Desk: 가져오기 실패 — ${String(err)}`)
     }
   }
 
@@ -493,7 +493,7 @@ class CanvasPanel {
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="${styleUri}" rel="stylesheet" />
-    <title>Cate Canvas</title>
+    <title>Jam Desk</title>
   </head>
   <body>
     <div id="app"></div>

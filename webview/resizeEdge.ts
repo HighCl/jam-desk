@@ -1,6 +1,6 @@
 // =============================================================================
 // resizeEdge — pure edge/corner hit detection for canvas nodes.
-// Ported verbatim from Cate (renderer/hooks/resizeEdge.ts).
+// Ported verbatim from the upstream IDE (renderer/hooks/resizeEdge.ts).
 // =============================================================================
 
 export type ResizeEdge =

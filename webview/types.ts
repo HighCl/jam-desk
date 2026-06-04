@@ -1,16 +1,16 @@
 // =============================================================================
-// Shared types & constants for the Cate Canvas webview.
+// Shared types & constants for the Jam Desk webview.
 // Geometry primitives, node/region models, and zoom/grid constants are ported
-// faithfully from the Cate IDE (src/shared/types.ts, layoutEngine.ts).
+// faithfully from the upstream IDE (src/shared/types.ts, layoutEngine.ts).
 //
-// The Cate node "content" (editor / browser / agent panels) is deeply
+// The upstream IDE's node "content" (editor / browser / agent panels) is deeply
 // Electron-coupled, so here a node hosts VS Code-friendly content: a free-text
 // *note*, a *file card* that opens a workspace file in the editor, or a live
 // *terminal* (xterm.js in the webview ⇄ a node-pty shell in the extension host,
-// mirroring Cate's terminal architecture).
+// mirroring the upstream IDE's terminal architecture).
 // =============================================================================
 
-// ---- Geometry primitives (ported verbatim from Cate) ------------------------
+// ---- Geometry primitives (ported verbatim from the upstream IDE) ------------------------
 
 export interface Point {
   x: number
@@ -58,12 +58,12 @@ export interface CanvasNodeState {
   regionId?: string
 }
 
-/** Mirrors Cate's `isMaximized` computed helper. */
+/** Mirrors the upstream IDE's `isMaximized` computed helper. */
 export function isMaximized(node: CanvasNodeState): boolean {
   return node.preMaximizeOrigin != null
 }
 
-// ---- Region (group container, ported from Cate) -----------------------------
+// ---- Region (group container, ported from the upstream IDE) -----------------------------
 
 export interface CanvasRegion {
   id: string
@@ -103,13 +103,13 @@ export interface CanvasDocument {
 
 export type CanvasTool = 'select' | 'hand'
 
-// ---- Zoom constants (from Cate CanvasState.swift) ---------------------------
+// ---- Zoom constants (from the upstream IDE's CanvasState.swift) -------------
 
 export const ZOOM_MIN = 0.3
 export const ZOOM_MAX = 3.0
 export const ZOOM_DEFAULT = 1.0
 
-// ---- Grid (from Cate layoutEngine.ts) ---------------------------------------
+// ---- Grid (from the upstream IDE layoutEngine.ts) ---------------------------------------
 
 /** Canvas-space spacing of the snap/background grid, in canvas units. */
 export const CANVAS_GRID_SIZE = 20
@@ -129,7 +129,7 @@ export const NODE_MINIMUM_SIZES: Record<NodeKind, Size> = {
 }
 
 /** A palette of accent colors offered for notes & regions (RGBA so the minimap
- *  can derive translucent fills, matching Cate's REGION_FILL_COLORS approach). */
+ *  can derive translucent fills, matching the upstream IDE's REGION_FILL_COLORS approach). */
 export const ACCENT_COLORS: string[] = [
   'rgba(74, 158, 255, 1)',
   'rgba(120, 200, 120, 1)',

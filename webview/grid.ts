@@ -5,7 +5,7 @@
 // device pixels and looks identical at every zoom level. The pattern step is
 // computed in screen px (BASE_SPACING * zoom); background-position slides the
 // pattern with the pan offset. Pan updates the position imperatively (no full
-// rebuild), matching Cate's CanvasGrid.
+// rebuild), matching the upstream IDE's CanvasGrid.
 // =============================================================================
 
 import { CANVAS_GRID_SIZE } from './types'

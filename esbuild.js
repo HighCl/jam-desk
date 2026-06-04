@@ -1,4 +1,4 @@
-// Build script for the Cate Canvas extension.
+// Build script for the Jam Desk extension.
 // Produces two bundles:
 //   dist/extension.js  — the extension host (Node, CommonJS, `vscode` external)
 //   dist/webview.js    — the webview app (browser IIFE, no externals)
@@ -67,10 +67,10 @@ async function main() {
     const ctxExt = await esbuild.context(extensionConfig)
     const ctxWeb = await esbuild.context(webviewConfig)
     await Promise.all([ctxExt.watch(), ctxWeb.watch()])
-    console.log('[cate-canvas] watching…')
+    console.log('[jam-desk] watching…')
   } else {
     await Promise.all([esbuild.build(extensionConfig), esbuild.build(webviewConfig)])
-    console.log('[cate-canvas] build complete')
+    console.log('[jam-desk] build complete')
   }
 }
 

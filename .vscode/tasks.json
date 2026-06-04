@@ -10,7 +10,7 @@
   // If you change your nvm default node version, update NODE_BIN below.
   "tasks": [
     {
-      "label": "cate: build",
+      "label": "jam-desk: build",
       "type": "shell",
       "command": "\"$HOME/.nvm/versions/node/v22.17.1/bin/node\" esbuild.js --production",
       "options": { "cwd": "${workspaceFolder}" },
@@ -19,7 +19,7 @@
       "detail": "node esbuild.js --production (absolute nvm node path)"
     },
     {
-      "label": "cate: watch",
+      "label": "jam-desk: watch",
       "type": "shell",
       "command": "\"$HOME/.nvm/versions/node/v22.17.1/bin/node\" esbuild.js --watch",
       "options": { "cwd": "${workspaceFolder}" },
@@ -38,8 +38,8 @@
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "\\[cate-canvas\\]|watching|esbuild",
-          "endsPattern": "\\[cate-canvas\\] watching"
+          "beginsPattern": "\\[jam-desk\\]|watching|esbuild",
+          "endsPattern": "\\[jam-desk\\] watching"
         }
       },
       "detail": "node esbuild.js --watch (absolute nvm node path)"

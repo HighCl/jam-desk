@@ -1,12 +1,12 @@
-# Cate Canvas — Infinite Canvas for VS Code
+# Jam Desk — Infinite Canvas for VS Code
 
 An infinite, zoomable **spatial canvas** inside VS Code. Pan, zoom, and place
 notes and file cards anywhere on a boundless surface; group them into regions;
 and never lose track of where you left things.
 
-The canvas mechanics are extracted faithfully from the [Cate IDE](https://github.com/0-AI-UG/cate)'s
+Jam Desk is inspired by the [Cate IDE](https://github.com/0-AI-UG/cate)'s
 central infinite canvas — the zoom/pan/inertia model, snapping, regions,
-minimap, auto-layout, and keyboard navigation are all ported verbatim. Cate's
+minimap, auto-layout, and keyboard navigation all follow the same mechanics.
 Electron-coupled node content (terminals, editors, browsers, AI agents) is
 replaced with two VS Code-friendly node kinds:
 
@@ -40,7 +40,7 @@ replaced with two VS Code-friendly node kinds:
 
 ## Usage
 
-Open the canvas with the command palette: **“Cate Canvas: Open Canvas”**.
+Open the canvas with the command palette: **“Jam Desk: Open Canvas”**.
 
 | Action | Shortcut / control |
 | --- | --- |
@@ -66,10 +66,10 @@ reset, clear).
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `cateCanvas.gridStyle` | `dots` | Background grid: `dots`, `lines`, or `none`. |
-| `cateCanvas.snapToGrid` | `true` | Snap to grid & neighbor edges (Alt bypasses). |
-| `cateCanvas.zoomSpeed` | `1` | Wheel/trackpad zoom multiplier. |
-| `cateCanvas.showMinimap` | `true` | Show the corner minimap. |
+| `jamDesk.gridStyle` | `dots` | Background grid: `dots`, `lines`, or `none`. |
+| `jamDesk.snapToGrid` | `true` | Snap to grid & neighbor edges (Alt bypasses). |
+| `jamDesk.zoomSpeed` | `1` | Wheel/trackpad zoom multiplier. |
+| `jamDesk.showMinimap` | `true` | Show the corner minimap. |
 
 ## Development
 
@@ -81,14 +81,14 @@ npm run typecheck    # tsc --noEmit
 ```
 
 Then press `F5` in VS Code to launch an Extension Development Host, and run
-**“Cate Canvas: Open Canvas”**.
+**“Jam Desk: Open Canvas”**.
 
 ### Architecture
 
 - `src/extension.ts` — extension host: the `WebviewPanel`, message protocol,
   `workspaceState` persistence, file open/pick, export/import, and the command
   surface.
-- `webview/` — a zero-dependency vanilla-TS port of Cate's canvas:
+- `webview/` — a zero-dependency vanilla-TS canvas implementation:
   - `store.ts` — a Zustand-like reactive store (shallow-merge, slice diffing).
   - `types.ts`, `coordinates.ts`, `layout.ts` — geometry, transforms, and the
     pure snapping / auto-layout engine.
@@ -103,5 +103,5 @@ Then press `F5` in VS Code to launch an Extension Development Host, and run
 
 ## Credits
 
-Canvas mechanics extracted and ported from the
+Canvas mechanics inspired by the
 [Cate IDE](https://github.com/0-AI-UG/cate). Licensed under MIT.

@@ -2,7 +2,7 @@
 // wheelIntent — classify a wheel event as a physical mouse wheel vs a trackpad
 // gesture. The canvas maps a physical mouse wheel → zoom (Miro-style) while
 // keeping a trackpad two-finger scroll → pan, and both arrive as `wheel`
-// events, so we tell them apart from the deltas alone. Ported from Cate.
+// events, so we tell them apart from the deltas alone. Ported from the upstream IDE.
 // =============================================================================
 
 export interface WheelLike {

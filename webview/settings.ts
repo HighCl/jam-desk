@@ -1,7 +1,7 @@
 // =============================================================================
 // Live settings mirror. The extension host pushes the user's configuration
 // (contributes.configuration) into the webview; modules read these getters so
-// behaviour tracks `cateCanvas.*` settings without re-wiring listeners.
+// behaviour tracks `jamDesk.*` settings without re-wiring listeners.
 // =============================================================================
 
 export type GridStyle = 'dots' | 'lines' | 'none'

@@ -2,7 +2,7 @@
 // TerminalController — an xterm.js terminal living inside a canvas node, talking
 // to a node-pty shell in the extension host through the TerminalBridge.
 //
-// Mirrors Cate's renderer terminal (TerminalPanel + terminalRegistry): xterm in
+// Mirrors the upstream IDE's renderer terminal (TerminalPanel + terminalRegistry): xterm in
 // the webview, PTY in the host, data streamed both ways over the message bridge.
 //
 // Geometry note: xterm measures the cell size with `offsetWidth` and FitAddon

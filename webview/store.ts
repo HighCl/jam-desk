@@ -1,7 +1,7 @@
 // =============================================================================
 // Canvas store — a framework-free reactive state container.
 //
-// Ported from Cate's Zustand store (renderer/stores/canvasStore.ts). The
+// Ported from the upstream IDE's Zustand store (renderer/stores/canvasStore.ts). The
 // reactive primitive mimics Zustand's shallow-merge semantics: each set()
 // produces a NEW top-level state object while preserving the identity of nested
 // values that did not change. That lets subscribers cheaply diff which slice
@@ -481,7 +481,7 @@ export class CanvasStore {
   }
 
   /** Smoothly animate to a target zoom, anchored at the viewport center
-   *  (lerp 0.15/frame, matching Cate). */
+   *  (lerp 0.15/frame, matching the upstream IDE). */
   animateZoomTo(targetZoom: number): void {
     this.cancelZoomAnimation()
     const clampedTarget = clampZoom(targetZoom)
@@ -653,7 +653,7 @@ export class CanvasStore {
   zoomToFit(): void {
     const state = this.data
     const nodeList = Object.values(state.nodes)
-    // Frames nodes only, like Cate: an empty (or regions-only) canvas is a no-op.
+    // Frames nodes only, like the upstream IDE: an empty (or regions-only) canvas is a no-op.
     if (nodeList.length === 0) return
     const cs = state.containerSize
     if (cs.width === 0 || cs.height === 0) return
@@ -979,7 +979,7 @@ export class CanvasStore {
    * update. Used by multi-region drag, where each entity is moved once (no
    * region→child cascade), so a selected region and its individually-selected
    * children both shift by the same delta without double-applying. Matches
-   * Cate's multi-drag branch in CanvasRegionComponent.
+   * the upstream IDE's multi-drag branch in CanvasRegionComponent.
    */
   translateSelection(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return

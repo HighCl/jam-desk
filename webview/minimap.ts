@@ -1,7 +1,7 @@
 // =============================================================================
 // CanvasMinimap — bird's-eye overview of all nodes & regions.
 //
-// Ported from Cate's Minimap.tsx. Renders into a corner of the canvas with:
+// Ported from the upstream IDE's Minimap.tsx. Renders into a corner of the canvas with:
 //  - node / region rectangles scaled to fit world bounds (+100 padding)
 //  - a viewport indicator rect updated IMPERATIVELY on pan (no full rebuild)
 //  - click / drag anywhere → navigate (pan) the camera to that world point
@@ -24,8 +24,8 @@ const PADDING = 10
 const GAP = 12
 
 type Corner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
-const CORNER_KEY = 'cateCanvas.minimap.corner'
-const SIZE_KEY = 'cateCanvas.minimap.size'
+const CORNER_KEY = 'jamDesk.minimap.corner'
+const SIZE_KEY = 'jamDesk.minimap.size'
 
 function loadCorner(): Corner {
   try {
@@ -167,7 +167,7 @@ export class CanvasMinimap {
   private rebuild(s: CanvasData): void {
     const nodeList = Object.values(s.nodes)
     const regionList = Object.values(s.regions)
-    // Like Cate, the minimap keys on nodes: a regions-only canvas hides it.
+    // Like the upstream IDE, the minimap keys on nodes: a regions-only canvas hides it.
     if (nodeList.length === 0) {
       this.hasContent = false
       this.applyVisibility()

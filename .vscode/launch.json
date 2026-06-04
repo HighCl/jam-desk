@@ -1,25 +1,25 @@
 {
   // F5 → builds the bundles, then opens a second VS Code window
-  // (the "Extension Development Host") with Cate Canvas loaded.
+  // (the "Extension Development Host") with Jam Desk loaded.
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Cate Canvas Extension",
+      "name": "Run Jam Desk Extension",
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
-      "preLaunchTask": "cate: build"
+      "preLaunchTask": "jam-desk: build"
     },
     {
-      // Same, but assumes `cate: watch` is already running so launch is instant
+      // Same, but assumes `jam-desk: watch` is already running so launch is instant
       // and rebuilds happen on save.
-      "name": "Run Cate Canvas Extension (watch)",
+      "name": "Run Jam Desk Extension (watch)",
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
-      "preLaunchTask": "cate: watch"
+      "preLaunchTask": "jam-desk: watch"
     }
   ]
 }
