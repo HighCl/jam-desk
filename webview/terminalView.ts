@@ -19,7 +19,7 @@ import { FitAddon } from '@xterm/addon-fit'
 // inline <style> through `style-src 'unsafe-inline'`).
 import xtermCss from '@xterm/xterm/css/xterm.css'
 import { t } from './i18n'
-import type { AgentActivity } from './types'
+import type { AgentActivity, AgentKind } from './types'
 import { classifyAgentTitle, cleanAgentTitle } from './types'
 
 /** The webview side of the terminal protocol; implemented by Persistence. */
@@ -46,6 +46,8 @@ export interface TerminalControllerHooks {
   /** OSC 0/2 title set by the PTY, agent state prefixes stripped (agents
    * publish their session title here). */
   onTitleChange?: (title: string) => void
+  /** Agent inferred from local terminal signals before/without host process scan. */
+  onAgent?: (agent: AgentKind) => void
   /** Derived coding-agent activity changed (only fires while an agent is attached). */
   onActivity?: (activity: AgentActivity) => void
 }
@@ -87,6 +89,89 @@ const OSC9_WAITING_RE = /^(approval requested|codex wants to edit|plan mode prom
 
 /** Trailing scan delay after PTY output settles (also the max scan rate). */
 const ACTIVITY_SCAN_MS = 250
+
+const CODEX_WAITING_TITLE_RE = /^\[\s*[!.]\s*\]\s*action required/i
+const CLAUDE_IDLE_TITLE_RE = /^[\u2733\u2736\u273b\u273d]\s/
+
+const INPUT_PREFIX_COMMANDS = new Set(['command', 'env', 'rlwrap', 'sudo', 'winpty'])
+const DIRECT_EXEC_COMMANDS = new Set(['bunx', 'npx', 'uvx'])
+const PACKAGE_EXEC_COMMANDS = new Map([
+  ['bun', new Set(['x'])],
+  ['npm', new Set(['exec', 'x'])],
+  ['pnpm', new Set(['dlx', 'exec'])],
+  ['yarn', new Set(['dlx', 'exec'])],
+])
+
+const OUTPUT_AGENT_PROBES: Array<{ agent: AgentKind; re: RegExp }> = [
+  { agent: 'claude', re: /\bClaude Code\b|claude-code/i },
+  { agent: 'codex', re: /\bOpenAI Codex\b|esc to interrupt|Action Required/i },
+]
+
+function leadingCommandTokens(command: string, limit: number): string[] {
+  const tokens: string[] = []
+  const re = /"([^"]*)"|'([^']*)'|[^\s]+/g
+  let m: RegExpExecArray | null
+  while (tokens.length < limit && (m = re.exec(command))) {
+    tokens.push(m[1] ?? m[2] ?? m[0])
+  }
+  return tokens
+}
+
+function commandStem(token: string): string {
+  const clean = token.trim().replace(/^[`"']+|[`"']+$/g, '').toLowerCase()
+  const base = clean.split(/[\\/]/).pop() ?? clean
+  return base.replace(/\.(?:exe|cmd|bat|ps1|js|cjs|mjs)$/i, '')
+}
+
+function classifyAgentToken(token: string | undefined): AgentKind | null {
+  if (!token) return null
+  const clean = token.trim().replace(/^[`"']+|[`"']+$/g, '').toLowerCase()
+  const stem = commandStem(clean)
+  if (stem === 'claude' || clean.includes('claude-code')) return 'claude'
+  if (stem === 'codex' || stem.startsWith('codex-') || clean.includes('@openai/codex')) {
+    return 'codex'
+  }
+  return null
+}
+
+function nextNonOption(tokens: string[], start: number): string | undefined {
+  for (let i = start; i < tokens.length; i++) {
+    if (!tokens[i].startsWith('-')) return tokens[i]
+  }
+  return undefined
+}
+
+function isInputPrefixToken(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token) || INPUT_PREFIX_COMMANDS.has(commandStem(token))
+}
+
+function classifyAgentLaunchCommand(command: string): AgentKind | null {
+  const tokens = leadingCommandTokens(command, 12)
+  let i = 0
+  while (i < tokens.length && isInputPrefixToken(tokens[i])) i++
+
+  const direct = classifyAgentToken(tokens[i])
+  if (direct) return direct
+
+  const stem = commandStem(tokens[i] ?? '')
+  if (DIRECT_EXEC_COMMANDS.has(stem)) return classifyAgentToken(nextNonOption(tokens, i + 1))
+
+  const subcommands = PACKAGE_EXEC_COMMANDS.get(stem)
+  const subcommand = commandStem(tokens[i + 1] ?? '')
+  if (subcommands?.has(subcommand)) {
+    return classifyAgentToken(nextNonOption(tokens, i + 2))
+  }
+
+  if (stem === 'node') return classifyAgentToken(nextNonOption(tokens, i + 1))
+  return null
+}
+
+function inferAgentFromTitle(title: string): AgentKind | null {
+  const s = title.trimStart()
+  if (CODEX_WAITING_TITLE_RE.test(s)) return 'codex'
+  if (CLAUDE_IDLE_TITLE_RE.test(s)) return 'claude'
+  return null
+}
 
 let cssInjected = false
 function ensureXtermCss(): void {
@@ -144,6 +229,10 @@ export class TerminalController {
   private wantFocus = false
   /** Host detected a coding agent in this PTY — enables activity scanning. */
   private agentPresent = false
+  /** Agent inferred in the webview from typed commands / title / output probes. */
+  private inferredAgent: AgentKind | null = null
+  private pendingInputLine = ''
+  private outputProbe = ''
   private scanTimer: number | null = null
   private lastReportedActivity: AgentActivity | null = null
   // Layered activity signals (see "Coding-agent activity signals" above).
@@ -184,6 +273,8 @@ export class TerminalController {
     // dedupes Codex's 100ms title rewrites for free.
     this.term.onTitleChange((title) => {
       if (this.disposed) return
+      const titleAgent = inferAgentFromTitle(title)
+      if (titleAgent) this.reportInferredAgent(titleAgent)
       const state = classifyAgentTitle(title)
       if (state !== this.titleState) {
         this.titleState = state
@@ -230,6 +321,7 @@ export class TerminalController {
     this.unsub = this.bridge.subscribe(this.id, {
       onData: (data) => {
         if (this.disposed) return
+        this.observeOutput(data)
         // Ack once xterm has parsed/buffered the chunk — this is the drain
         // signal the host uses to release PTY backpressure. Same units (string
         // length) the host counts, so the byte tally stays balanced.
@@ -256,6 +348,7 @@ export class TerminalController {
         this.osc9Waiting = false
         this.scheduleActivityScan()
       }
+      this.observeInput(data)
       this.bridge.input(this.id, data)
     })
     this.term.onResize(({ cols, rows }) => {
@@ -302,10 +395,49 @@ export class TerminalController {
     if (present) this.scheduleActivityScan()
   }
 
+  private reportInferredAgent(agent: AgentKind): void {
+    if (this.inferredAgent === agent && this.agentPresent) return
+    this.inferredAgent = agent
+    this.hooks.onAgent?.(agent)
+    if (!this.agentPresent) this.setAgentPresent(true)
+  }
+
+  private observeInput(data: string): void {
+    if (data.includes('\x1b')) return
+
+    for (const ch of data) {
+      if (ch === '\x03') {
+        this.pendingInputLine = ''
+      } else if (ch === '\x7f' || ch === '\b') {
+        this.pendingInputLine = this.pendingInputLine.slice(0, -1)
+      } else if (ch === '\r' || ch === '\n') {
+        const agent = classifyAgentLaunchCommand(this.pendingInputLine)
+        this.pendingInputLine = ''
+        if (agent) this.reportInferredAgent(agent)
+      } else if (ch >= ' ') {
+        this.pendingInputLine = (this.pendingInputLine + ch).slice(-512)
+      }
+    }
+  }
+
+  private observeOutput(data: string): void {
+    if (this.agentPresent) return
+    const plain = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    this.outputProbe = (this.outputProbe + plain).slice(-4096)
+    for (const probe of OUTPUT_AGENT_PROBES) {
+      if (probe.re.test(this.outputProbe)) {
+        this.reportInferredAgent(probe.agent)
+        return
+      }
+    }
+  }
+
   /** OSC 9: "4;<state>;<progress>" is ConEmu/iTerm2 progress reporting; any
    * other payload is an iTerm2-style notification message. */
   private handleOsc9(data: string): void {
-    if (!this.agentPresent || this.disposed) return
+    if (this.disposed) return
+    if (!this.agentPresent && OSC9_WAITING_RE.test(data)) this.reportInferredAgent('codex')
+    if (!this.agentPresent) return
     const progress = /^4;(\d*)/.exec(data)
     if (progress) {
       // 1 = running, 3 = indeterminate; 0/2 = cleared/error.

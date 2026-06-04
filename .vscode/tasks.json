@@ -1,27 +1,21 @@
 {
   "version": "2.0.0",
-  // VS Code runs tasks in a NON-interactive login shell that does not source
-  // ~/.zshrc, so nvm never puts `node`/`npm` on PATH and `npm run …` dies with
-  // `env: node: No such file or directory`. We avoid PATH resolution entirely by
-  // calling the nvm node binary by ABSOLUTE PATH and running esbuild.js directly.
-  // (These are `shell` tasks with unique labels so they can't collide with the
-  // npm scripts VS Code auto-detects from package.json.)
-  //
-  // If you change your nvm default node version, update NODE_BIN below.
   "tasks": [
     {
       "label": "jam-desk: build",
-      "type": "shell",
-      "command": "\"$HOME/.nvm/versions/node/v22.17.1/bin/node\" esbuild.js --production",
+      "type": "process",
+      "command": "node",
+      "args": ["esbuild.js", "--production"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": [],
-      "detail": "node esbuild.js --production (absolute nvm node path)"
+      "detail": "node esbuild.js --production"
     },
     {
       "label": "jam-desk: watch",
-      "type": "shell",
-      "command": "\"$HOME/.nvm/versions/node/v22.17.1/bin/node\" esbuild.js --watch",
+      "type": "process",
+      "command": "node",
+      "args": ["esbuild.js", "--watch"],
       "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
       "group": "build",
@@ -42,7 +36,7 @@
           "endsPattern": "\\[jam-desk\\] watching"
         }
       },
-      "detail": "node esbuild.js --watch (absolute nvm node path)"
+      "detail": "node esbuild.js --watch"
     }
   ]
 }

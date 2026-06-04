@@ -275,6 +275,7 @@ export class CanvasView {
       content.appendChild(host)
       if (this.hooks.terminals) {
         const ctrl = new TerminalController(node.id, this.hooks.terminals, node.cwd, {
+          onAgent: (agent) => this.store.updateTerminalAgent(node.id, { agent }),
           onTitleChange: (title) => this.store.updateTerminalAgent(node.id, { oscTitle: title }),
           onActivity: (activity) => this.store.updateTerminalAgent(node.id, { activity }),
         })

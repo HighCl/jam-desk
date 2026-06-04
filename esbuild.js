@@ -39,7 +39,7 @@ const shared = {
 
 const extensionConfig = {
   ...shared,
-  entryPoints: ['src/extension.ts'],
+  entryPoints: ['./src/extension.ts'],
   outfile: 'dist/extension.js',
   platform: 'node',
   format: 'cjs',
@@ -51,7 +51,7 @@ const extensionConfig = {
 
 const webviewConfig = {
   ...shared,
-  entryPoints: ['webview/main.ts'],
+  entryPoints: ['./webview/main.ts'],
   outfile: 'dist/webview.js',
   platform: 'browser',
   format: 'iife',

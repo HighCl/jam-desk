@@ -11,11 +11,14 @@ import * as vscode from 'vscode'
 import * as path from 'path'
 import * as os from 'os'
 import * as fs from 'fs'
-import { exec } from 'child_process'
-import * as nodePty from 'node-pty'
+import { exec, execFile } from 'child_process'
+import type * as Net from 'net'
+import type * as NodePty from 'node-pty'
 
 const DOCUMENT_KEY = 'jamDesk.document'
 const VIEW_TYPE = 'jamDesk.canvas'
+
+const nodePty = loadNodePty()
 
 interface CanvasDocument {
   version: number
@@ -29,6 +32,80 @@ interface CanvasDocument {
 }
 
 let panel: CanvasPanel | undefined
+
+function loadNodePty(): typeof NodePty {
+  patchNodePtyConoutBridge()
+  return require('node-pty') as typeof NodePty
+}
+
+function patchNodePtyConoutBridge(): void {
+  if (process.platform !== 'win32' || !isExtensionHostDebugging()) return
+
+  const net = require('net') as typeof Net
+  const conoutModulePath = require.resolve('node-pty/lib/windowsConoutConnection')
+  const { getWorkerPipeName } = require('node-pty/lib/shared/conout') as {
+    getWorkerPipeName(conoutPipeName: string): string
+  }
+
+  class ReadyEvent {
+    private listeners: Array<() => void> = []
+
+    readonly event = (listener: () => void) => {
+      this.listeners.push(listener)
+      return {
+        dispose: () => {
+          this.listeners = this.listeners.filter((item) => item !== listener)
+        },
+      }
+    }
+
+    fire(): void {
+      for (const listener of [...this.listeners]) listener()
+    }
+  }
+
+  class InlineConoutConnection {
+    private readonly onReadyEmitter = new ReadyEvent()
+    private readonly conoutSocket: Net.Socket
+    private readonly server: Net.Server
+
+    constructor(private readonly conoutPipeName: string) {
+      this.conoutSocket = new net.Socket()
+      this.conoutSocket.setEncoding('utf8')
+      this.server = net.createServer((workerSocket) => {
+        this.conoutSocket.pipe(workerSocket)
+      })
+      this.conoutSocket.connect(conoutPipeName, () => {
+        this.server.listen(getWorkerPipeName(conoutPipeName), () => this.onReadyEmitter.fire())
+      })
+    }
+
+    get onReady() {
+      return this.onReadyEmitter.event
+    }
+
+    connectSocket(socket: Net.Socket): void {
+      socket.connect(getWorkerPipeName(this.conoutPipeName))
+    }
+
+    dispose(): void {
+      this.conoutSocket.destroy()
+      this.server.close()
+    }
+  }
+
+  ;(require(conoutModulePath) as { ConoutConnection: unknown }).ConoutConnection =
+    InlineConoutConnection
+  console.info('[jam-desk] using inline ConPTY bridge for extension-host debugging')
+}
+
+function isExtensionHostDebugging(): boolean {
+  const args = [...process.execArgv, ...process.argv]
+  return (
+    process.env.VSCODE_DEBUG_MODE === 'true' ||
+    args.some((arg) => /^--inspect(?:-brk)?(?:=|$)/.test(arg))
+  )
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const open = () => {
@@ -103,17 +180,17 @@ const FLOW_HIGH_WATER = 100_000
 const FLOW_LOW_WATER = 20_000
 
 interface TerminalProc {
-  proc: nodePty.IPty
+  proc: NodePty.IPty
   /** Bytes posted to the webview but not yet acknowledged as drained. */
   unacked: number
   paused: boolean
 }
 
 // ---- Coding-agent detection ---------------------------------------------------
-// Every AGENT_POLL_MS the process table is read once (`ps`); each live PTY's
+// Every AGENT_POLL_MS the process table is read once; each live PTY's
 // descendant tree is searched for a Claude Code / Codex CLI. Changes are posted
 // to the webview as `terminal.agent` messages, which drive the panel-title and
-// minimap status UI. POSIX only — detection is silently disabled on Windows.
+// minimap status UI.
 
 const AGENT_POLL_MS = 2000
 
@@ -123,19 +200,37 @@ type AgentKind = 'claude' | 'codex'
  * inspected ("claude --resume", "node …/claude-code/cli.js", "bun x codex") so
  * arbitrary argument text cannot false-positive. */
 function classifyAgentCommand(command: string): AgentKind | null {
-  for (const raw of command.trim().split(/\s+/).slice(0, 3)) {
-    const tok = raw.toLowerCase()
-    const base = path.basename(tok)
-    if (base === 'claude' || base === 'claude.js' || tok.includes('claude-code')) return 'claude'
-    if (base === 'codex' || base === 'codex.js' || base.startsWith('codex-')) return 'codex'
+  for (const raw of leadingCommandTokens(command, 8)) {
+    const tok = raw.trim().replace(/^[`"']+|[`"']+$/g, '').toLowerCase()
+    const base = path.win32.basename(tok)
+    const stem = base.replace(/\.(?:exe|cmd|bat|ps1|js|cjs|mjs)$/i, '')
+    if (stem === 'claude' || tok.includes('claude-code')) return 'claude'
+    if (stem === 'codex' || stem.startsWith('codex-') || tok.includes('@openai/codex')) {
+      return 'codex'
+    }
   }
   return null
 }
 
+function leadingCommandTokens(command: string, limit: number): string[] {
+  const tokens: string[] = []
+  const re = /"([^"]*)"|'([^']*)'|[^\s]+/g
+  let m: RegExpExecArray | null
+  while (tokens.length < limit && (m = re.exec(command))) {
+    tokens.push(m[1] ?? m[2] ?? m[0])
+  }
+  return tokens
+}
+
 type ProcessTree = Map<number, Array<{ pid: number; command: string }>>
 
-/** One `ps` pass → children-by-parent-pid map. Null when `ps` is unavailable. */
+/** One process-list pass -> children-by-parent-pid map. Null when unavailable. */
 function readProcessTree(): Promise<ProcessTree | null> {
+  if (process.platform === 'win32') return readWindowsProcessTree()
+  return readPosixProcessTree()
+}
+
+function readPosixProcessTree(): Promise<ProcessTree | null> {
   return new Promise((resolve) => {
     exec('ps -axo pid=,ppid=,command=', { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
       if (err || typeof stdout !== 'string') return resolve(null)
@@ -152,6 +247,82 @@ function readProcessTree(): Promise<ProcessTree | null> {
       resolve(byParent)
     })
   })
+}
+
+interface WindowsProcessEntry {
+  ProcessId?: unknown
+  ParentProcessId?: unknown
+  CommandLine?: unknown
+}
+
+const WINDOWS_PROCESS_TREE_SCRIPT =
+  "$ErrorActionPreference='Stop'; " +
+  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ' +
+  '$OutputEncoding=[System.Text.Encoding]::UTF8; ' +
+  'Get-CimInstance Win32_Process | ForEach-Object { ' +
+  '[pscustomobject]@{ ' +
+  'ProcessId=[int]$_.ProcessId; ' +
+  'ParentProcessId=[int]$_.ParentProcessId; ' +
+  'CommandLine=$(if ($_.CommandLine) { [string]$_.CommandLine } else { [string]$_.Name }) ' +
+  '} ' +
+  '} | ConvertTo-Json -Compress'
+
+function readWindowsProcessTree(): Promise<ProcessTree | null> {
+  return new Promise((resolve) => {
+    execFile(
+      resolveWindowsPowerShellPath(),
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        WINDOWS_PROCESS_TREE_SCRIPT,
+      ],
+      { maxBuffer: 20 * 1024 * 1024, windowsHide: true },
+      (err, stdout) => {
+        if (err || typeof stdout !== 'string') return resolve(null)
+        resolve(parseWindowsProcessTree(stdout))
+      },
+    )
+  })
+}
+
+function resolveWindowsPowerShellPath(): string {
+  const root = process.env.SystemRoot || process.env.WINDIR
+  if (root) {
+    const exe = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    if (fs.existsSync(exe)) return exe
+  }
+  return 'powershell.exe'
+}
+
+function parseWindowsProcessTree(stdout: string): ProcessTree | null {
+  const text = stdout.trim()
+  if (!text) return new Map()
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return null
+  }
+
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  const byParent: ProcessTree = new Map()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const rec = row as WindowsProcessEntry
+    const pid = Number(rec.ProcessId)
+    const ppid = Number(rec.ParentProcessId)
+    if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue
+    const command = typeof rec.CommandLine === 'string' ? rec.CommandLine : ''
+    const siblings = byParent.get(ppid)
+    const entry = { pid, command }
+    if (siblings) siblings.push(entry)
+    else byParent.set(ppid, [entry])
+  }
+  return byParent
 }
 
 /** Breadth-first search of a PTY's descendants for an agent CLI, so the
@@ -193,7 +364,7 @@ class TerminalManager {
     // like a normal interactive terminal.
     delete env.ELECTRON_RUN_AS_NODE
 
-    let proc: nodePty.IPty
+    let proc: NodePty.IPty
     try {
       proc = nodePty.spawn(shellPath, shellArgs(shellPath), {
         name: 'xterm-256color',
@@ -299,8 +470,7 @@ class TerminalManager {
   // ---- Coding-agent polling --------------------------------------------------
 
   private ensureAgentPolling(): void {
-    // `ps`-based; Windows has no cheap equivalent here, so the feature is off.
-    if (this.agentTimer || process.platform === 'win32') return
+    if (this.agentTimer) return
     this.agentTimer = setInterval(() => void this.pollAgents(), AGENT_POLL_MS)
   }
 
