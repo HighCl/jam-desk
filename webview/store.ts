@@ -37,6 +37,11 @@ import { viewToCanvas as viewToCanvasCoords } from './coordinates'
 import { findFreePosition, defaultSize, autoLayoutAll } from './layout'
 import { t } from './i18n'
 
+/** Screen-space top margin (in px) that the floating toolbar occupies (top:12 +
+ * ~38px button height + breathing room). Tile/maximize layouts reserve this much
+ * at the top of the viewport so tiled nodes' title bars aren't hidden behind it. */
+const TOOLBAR_TOP_RESERVE = 56
+
 // -----------------------------------------------------------------------------
 // State shape (data only — actions live as methods on the store object)
 // -----------------------------------------------------------------------------
@@ -222,10 +227,20 @@ export class CanvasStore {
     this.set({
       nodes: prev.nodes,
       regions: prev.regions,
-      focusedNodeId: prev.focusedNodeId,
+      // Keep the user's current focus across undo instead of restoring the
+      // historical one. Re-focusing (often onto a terminal) would pull DOM focus
+      // into xterm, so the next Ctrl+Z gets swallowed by the terminal and undo
+      // appears to stop. Clear only if the focused node no longer exists.
+      focusedNodeId: this.keepFocusIn(prev.nodes),
       history: state.history.slice(0, -1),
       future: [...state.future, current],
     })
+  }
+
+  /** The current focus, retained only if that node survives in `nodes`. */
+  private keepFocusIn(nodes: Record<CanvasNodeId, CanvasNodeState>): CanvasNodeId | null {
+    const id = this.data.focusedNodeId
+    return id && nodes[id] ? id : null
   }
 
   redo(): void {
@@ -240,7 +255,8 @@ export class CanvasStore {
     this.set({
       nodes: next.nodes,
       regions: next.regions,
-      focusedNodeId: next.focusedNodeId,
+      // Preserve current focus across redo too (see undo()).
+      focusedNodeId: this.keepFocusIn(next.nodes),
       history: [...state.history, current],
       future: state.future.slice(0, -1),
     })
@@ -432,14 +448,17 @@ export class CanvasStore {
         y: cs.height || viewportSize.height,
       })
       const padding = 20 / state.zoomLevel
+      // Reserve the toolbar strip at the top so a maximized node's title bar
+      // (and its buttons) stay clear of the floating toolbar.
+      const topInset = TOOLBAR_TOP_RESERVE / state.zoomLevel
       updated = {
         ...node,
         preMaximizeOrigin: { ...node.origin },
         preMaximizeSize: { ...node.size },
-        origin: { x: topLeft.x + padding, y: topLeft.y + padding },
+        origin: { x: topLeft.x + padding, y: topLeft.y + topInset },
         size: {
           width: bottomRight.x - topLeft.x - padding * 2,
-          height: bottomRight.y - topLeft.y - padding * 2,
+          height: bottomRight.y - topLeft.y - topInset - padding,
         },
       }
     }
@@ -1002,10 +1021,13 @@ export class CanvasStore {
 
     // Keep an ~constant on-screen gap by converting it to canvas units.
     const gap = 12 / zoom
+    // Reserve room for the floating toolbar at the top so the top row's title
+    // bars aren't hidden behind it.
+    const topInset = TOOLBAR_TOP_RESERVE / zoom
     const areaX = tl.x + gap
-    const areaY = tl.y + gap
+    const areaY = tl.y + topInset
     const areaW = Math.max(br.x - tl.x - gap * 2, 100)
-    const areaH = Math.max(br.y - tl.y - gap * 2, 100)
+    const areaH = Math.max(br.y - tl.y - topInset - gap, 100)
 
     const cellW = (areaW - gap * (cols - 1)) / cols
     const cellH = (areaH - gap * (rows - 1)) / rows

@@ -34,10 +34,19 @@ export interface TerminalBridge {
   ack(id: string, bytes: number): void
   /** Kill the PTY and release host resources. */
   kill(id: string): void
-  /** Subscribe to PTY output / exit for this id. Returns an unsubscribe fn. */
+  /** Copy text to the system clipboard (routed through the host). */
+  copy(text: string): void
+  /** Request the system clipboard contents be pasted into terminal `id`. */
+  paste(id: string): void
+  /** Subscribe to PTY output / exit / paste for this id. Returns an unsubscribe fn. */
   subscribe(
     id: string,
-    handlers: { onData: (data: string) => void; onExit: (code: number) => void },
+    handlers: {
+      onData: (data: string) => void
+      onExit: (code: number) => void
+      /** Clipboard text resolved by the host in response to paste(id). */
+      onPaste?: (text: string) => void
+    },
   ): () => void
 }
 
@@ -50,6 +59,41 @@ export interface TerminalControllerHooks {
   onAgent?: (agent: AgentKind) => void
   /** Derived coding-agent activity changed (only fires while an agent is attached). */
   onActivity?: (activity: AgentActivity) => void
+  /** Current canvas zoom. The terminal lives inside the world's `scale(zoom)`
+   * transform, which xterm's mouse→cell mapping does not account for; we read
+   * this to correct selection / mouse-report coordinates at any zoom. */
+  getZoom?: () => number
+}
+
+// ---- xterm internals (pinned 5.5.0) for the mouse-coordinate zoom fix --------
+// xterm computes the cell under the pointer from `element.getBoundingClientRect()`
+// (which is in *visual* px — scaled by the world's `scale(zoom)` transform) but
+// divides by the cell size measured in *layout* px. Under any zoom ≠ 1 the
+// selection then drifts from the cursor, worsening with distance from the
+// terminal's top-left. xterm exposes no scale hook, so we reach the (pinned)
+// internal MouseService and replace its two coordinate methods with copies that
+// divide the pointer offset back into layout space first. All access is
+// optional-chained: if these private shapes ever change, we silently leave the
+// stock (zoom-naive) behavior in place rather than throw.
+interface XtermCellDims {
+  width: number
+  height: number
+}
+interface XtermMouseService {
+  getCoords?: (
+    event: MouseEvent,
+    element: HTMLElement,
+    cols: number,
+    rows: number,
+    isSelection?: boolean,
+  ) => [number, number] | undefined
+  getMouseReportCoords?: (
+    event: MouseEvent,
+    element: HTMLElement,
+  ) => { col: number; row: number; x: number; y: number } | undefined
+  _charSizeService?: { hasValidSize: boolean }
+  _renderService?: { dimensions?: { css?: { cell?: XtermCellDims; canvas?: XtermCellDims } } }
+  __jamZoomPatched?: boolean
 }
 
 // ---- Coding-agent activity signals --------------------------------------------
@@ -315,6 +359,38 @@ export class TerminalController {
         if (ev.type === 'keydown' && !this.disposed) this.bridge.input(this.id, '\\\r')
         return false
       }
+
+      // Copy / paste. Ctrl (Win/Linux) or Cmd (mac) + C / V, plus Shift+Insert.
+      // We preventDefault + route clipboard through the host so behavior is
+      // identical across platforms and the browser's own copy/paste (which the
+      // hidden xterm helper textarea would otherwise mishandle) never fires.
+      const mod = ev.ctrlKey || ev.metaKey
+      if (mod && !ev.altKey && (ev.key === 'c' || ev.key === 'C')) {
+        // Only intercept when there's a selection — otherwise let Ctrl+C through
+        // so it still sends SIGINT to the shell / running program.
+        if (this.term.hasSelection()) {
+          if (ev.type === 'keydown') {
+            ev.preventDefault()
+            this.copySelection()
+          }
+          return false
+        }
+        return true
+      }
+      if (mod && !ev.altKey && (ev.key === 'v' || ev.key === 'V')) {
+        if (ev.type === 'keydown') {
+          ev.preventDefault()
+          this.requestPaste()
+        }
+        return false
+      }
+      if (ev.shiftKey && ev.key === 'Insert') {
+        if (ev.type === 'keydown') {
+          ev.preventDefault()
+          this.requestPaste()
+        }
+        return false
+      }
       return true
     })
   }
@@ -325,10 +401,48 @@ export class TerminalController {
     this.mounted = true
 
     this.term.open(host)
+    this.patchMouseScaling()
     this.fitNow()
+
+    // Right-click in the terminal copies the selection (if any), else pastes —
+    // the common GUI-terminal convention. Stop the right mousedown from bubbling
+    // to the canvas (which would otherwise start a right-drag pan), and suppress
+    // the native context menu.
+    host.addEventListener('mousedown', (e) => {
+      if (e.button === 2) e.stopPropagation()
+    })
+    host.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (this.disposed) return
+      if (this.term.hasSelection()) this.copySelection()
+      else this.requestPaste()
+    })
+
+    // Paste is routed through the host (vscode.env.clipboard) so it works in the
+    // VS Code webview on every platform — see requestPaste(). xterm ALSO binds
+    // native `paste` listeners to its root element and hidden textarea, and on
+    // macOS that paste event still fires on Cmd+V (preventDefault on the keydown
+    // doesn't cancel it), pasting a second time. Swallow the native paste in the
+    // capture phase (before it reaches either xterm listener) so only our
+    // host-routed paste runs.
+    host.addEventListener(
+      'paste',
+      (e) => {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+      },
+      true,
+    )
 
     // Subscribe BEFORE create so no early output is dropped.
     this.unsub = this.bridge.subscribe(this.id, {
+      onPaste: (text) => {
+        if (this.disposed || !text) return
+        // term.paste() routes through onData (and bracketed-paste mode when the
+        // app enabled it), so multi-line pastes into agents stay intact.
+        this.term.paste(text)
+      },
       onData: (data) => {
         if (this.disposed) return
         this.observeOutput(data)
@@ -396,6 +510,81 @@ export class TerminalController {
       return
     }
     this.term.focus()
+  }
+
+  /** Make xterm's pointer→cell mapping account for the world's `scale(zoom)`
+   * transform. See the XtermMouseService notes above. Must run after
+   * `term.open()` (the MouseService is created during open). No-op when no zoom
+   * getter is wired or the internal shape is unavailable — selection then keeps
+   * xterm's stock behavior (already correct at zoom = 1). */
+  private patchMouseScaling(): void {
+    const getZoom = this.hooks.getZoom
+    if (!getZoom) return
+    const core = (this.term as unknown as { _core?: { _mouseService?: XtermMouseService } })._core
+    const ms = core?._mouseService
+    if (!ms || ms.__jamZoomPatched || typeof ms.getCoords !== 'function') return
+    ms.__jamZoomPatched = true
+
+    // Pointer offset within `element`, converted from visual (scaled) px back to
+    // layout px — the space the cell size is measured in. Padding (layout px) is
+    // subtracted after the divide, matching xterm's own getCoordsRelativeToElement.
+    const layoutOffset = (event: MouseEvent, element: HTMLElement, zoom: number) => {
+      const rect = element.getBoundingClientRect()
+      const style = window.getComputedStyle(element)
+      const padL = parseInt(style.paddingLeft) || 0
+      const padT = parseInt(style.paddingTop) || 0
+      return {
+        x: (event.clientX - rect.left) / zoom - padL,
+        y: (event.clientY - rect.top) / zoom - padT,
+      }
+    }
+
+    ms.getCoords = (event, element, cols, rows, isSelection) => {
+      const cell = ms._renderService?.dimensions?.css?.cell
+      if (!ms._charSizeService?.hasValidSize || !cell || !cell.width || !cell.height) return undefined
+      const zoom = getZoom() || 1
+      const { x, y } = layoutOffset(event, element, zoom)
+      let col = Math.ceil((x + (isSelection ? cell.width / 2 : 0)) / cell.width)
+      let row = Math.ceil(y / cell.height)
+      col = Math.min(Math.max(col, 1), cols + (isSelection ? 1 : 0))
+      row = Math.min(Math.max(row, 1), rows)
+      return [col, row]
+    }
+
+    ms.getMouseReportCoords = (event, element) => {
+      const css = ms._renderService?.dimensions?.css
+      const cell = css?.cell
+      const canvas = css?.canvas
+      if (!ms._charSizeService?.hasValidSize || !cell || !canvas) return undefined
+      const zoom = getZoom() || 1
+      const off = layoutOffset(event, element, zoom)
+      const x = Math.min(Math.max(off.x, 0), canvas.width - 1)
+      const y = Math.min(Math.max(off.y, 0), canvas.height - 1)
+      return {
+        col: Math.floor(x / cell.width),
+        row: Math.floor(y / cell.height),
+        x: Math.floor(x),
+        y: Math.floor(y),
+      }
+    }
+  }
+
+  // ---- Clipboard ------------------------------------------------------------
+
+  /** Copy the current selection to the system clipboard, then clear it. */
+  private copySelection(): void {
+    if (this.disposed) return
+    const text = this.term.getSelection()
+    if (!text) return
+    this.bridge.copy(text)
+    this.term.clearSelection()
+  }
+
+  /** Ask the host for the clipboard text; it comes back via the onPaste hook. */
+  private requestPaste(): void {
+    if (this.disposed) return
+    this.term.focus()
+    this.bridge.paste(this.id)
   }
 
   // ---- Launcher command -----------------------------------------------------

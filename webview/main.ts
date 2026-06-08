@@ -17,6 +17,7 @@ import type { ContextMenuRequest } from './interaction'
 import { Persistence } from './persistence'
 import { settings } from './settings'
 import { t } from './i18n'
+import { viewToCanvas } from './coordinates'
 import type { Point } from './types'
 
 // -----------------------------------------------------------------------------
@@ -171,6 +172,7 @@ const persistence = new Persistence(store, {
 const view = new CanvasView(world, store, {
   onOpenFile: (filePath) => persistence.openFile(filePath),
   terminals: persistence.terminals,
+  files: persistence.files,
 })
 
 const minimap = new CanvasMinimap(canvasEl, store)
@@ -205,6 +207,69 @@ const measure = () => {
 measure()
 const ro = new ResizeObserver(() => measure())
 ro.observe(canvasEl)
+
+// -----------------------------------------------------------------------------
+// File drop — drag files from the VS Code explorer onto the canvas
+// -----------------------------------------------------------------------------
+
+/** Pull file URIs out of a drop's dataTransfer, trying the MIME types the VS
+ * Code explorer populates (it varies by version). */
+function extractDroppedUris(dt: DataTransfer): string[] {
+  const out: string[] = []
+  const pushLines = (text: string) => {
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim()
+      if (line && !line.startsWith('#')) out.push(line)
+    }
+  }
+
+  const uriList = dt.getData('text/uri-list') || dt.getData('application/vnd.code.uri-list')
+  if (uriList) pushLines(uriList)
+
+  if (out.length === 0) {
+    const res = dt.getData('resourceurls')
+    if (res) {
+      try {
+        const arr = JSON.parse(res)
+        if (Array.isArray(arr)) {
+          for (const u of arr) if (typeof u === 'string' && u) out.push(u)
+        }
+      } catch {
+        /* not JSON — ignore */
+      }
+    }
+  }
+
+  if (out.length === 0) {
+    const plain = dt.getData('text/plain').trim()
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(plain)) pushLines(plain)
+  }
+
+  return out
+}
+
+canvasEl.addEventListener('dragover', (e) => {
+  if (!e.dataTransfer) return
+  // Claim the drop so the webview accepts it (and shows the copy cursor).
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'copy'
+})
+
+canvasEl.addEventListener('drop', (e) => {
+  if (!e.dataTransfer) return
+  const uris = extractDroppedUris(e.dataTransfer)
+  if (uris.length === 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  const rect = canvasEl.getBoundingClientRect()
+  const { zoomLevel, viewportOffset } = store.getState()
+  const at = viewToCanvas(
+    { x: e.clientX - rect.left, y: e.clientY - rect.top },
+    zoomLevel,
+    viewportOffset,
+  )
+  persistence.dropFiles(uris, at)
+})
 
 // -----------------------------------------------------------------------------
 // Command dispatch (toolbar / palette / host menu)

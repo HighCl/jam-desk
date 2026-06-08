@@ -139,6 +139,28 @@ export const AGENT_ACTIVITY_META: Record<
   waiting: { color: '#ef5e88', runner: 'parrot', label: 'Waiting' },
 }
 
+/** One emoji per agent activity, shown in the Jam Desk panel (editor tab) title.
+ *  working → running, waiting → needs user input, idle → attached but quiet. */
+export const AGENT_ACTIVITY_EMOJI: Record<AgentActivity, string> = {
+  working: '🏃',
+  waiting: '🙋',
+  idle: '💤',
+}
+
+/** Build the panel-title agent summary: one emoji per terminal that currently
+ *  hosts a coding agent, grouped by activity (working → waiting → idle) so the
+ *  string stays stable as individual agents change state. Empty when none run. */
+export function agentActivityEmojiSummary(
+  agents: Record<string, TerminalAgentState>,
+): string {
+  const counts: Record<AgentActivity, number> = { working: 0, waiting: 0, idle: 0 }
+  for (const rec of Object.values(agents)) {
+    if (rec?.agent) counts[rec.activity]++
+  }
+  const order: AgentActivity[] = ['working', 'waiting', 'idle']
+  return order.map((a) => AGENT_ACTIVITY_EMOJI[a].repeat(counts[a])).join('')
+}
+
 /** A shell title set long before the agent attached belongs to the shell, not
  * the agent; only titles from (just before or) during the session are trusted. */
 const AGENT_TITLE_GRACE_MS = 8000

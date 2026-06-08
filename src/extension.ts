@@ -17,6 +17,21 @@ import type * as NodePty from 'node-pty'
 
 const DOCUMENT_KEY = 'jamDesk.document'
 const VIEW_TYPE = 'jamDesk.canvas'
+/** Base panel (editor tab) title; the webview appends a row of agent-status
+ *  emoji to it via the `agentSummary` message. */
+const PANEL_TITLE = 'Jam Desk'
+
+/** Upper bound on file-preview payload size — keeps message + webview highlight
+ * cost bounded for very large files. Beyond this the preview is truncated. */
+const MAX_PREVIEW_CHARS = 200_000
+
+/** Cheap binary sniff: a NUL byte in the head means "don't try to preview as
+ * text". Mirrors the heuristic Git and most editors use. */
+function looksBinary(bytes: Uint8Array): boolean {
+  const n = Math.min(bytes.length, 8000)
+  for (let i = 0; i < n; i++) if (bytes[i] === 0) return true
+  return false
+}
 
 const nodePty = loadNodePty()
 
@@ -560,11 +575,18 @@ class CanvasPanel {
   private readonly disposables: vscode.Disposable[] = []
   private readonly disposeCallbacks: Array<() => void> = []
   private readonly terminals = new TerminalManager((msg) => this.post(msg))
+  /** File paths the webview is previewing → refcount + disk watcher + resolved
+   * fsPath (for matching editor-change events back to the webview's key). */
+  private readonly watchedFiles = new Map<
+    string,
+    { refs: number; watcher?: vscode.FileSystemWatcher; fsPath: string }
+  >()
+  private readonly fileSendTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
-      'Jam Desk',
+      PANEL_TITLE,
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -594,6 +616,27 @@ class CanvasPanel {
     )
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables)
+
+    // Live-sync file previews with the real editors: unsaved edits stream in via
+    // onDidChangeTextDocument (debounced), and saves push immediately. On-disk
+    // changes to files NOT open in an editor are caught by per-file watchers
+    // created in watchFile().
+    vscode.workspace.onDidChangeTextDocument(
+      (e) => {
+        const key = this.findWatchKeyByFsPath(e.document.uri.fsPath)
+        if (key) this.scheduleFileSend(key)
+      },
+      null,
+      this.disposables,
+    )
+    vscode.workspace.onDidSaveTextDocument(
+      (doc) => {
+        const key = this.findWatchKeyByFsPath(doc.uri.fsPath)
+        if (key) void this.sendFileContent(key)
+      },
+      null,
+      this.disposables,
+    )
   }
 
   reveal(): void {
@@ -611,6 +654,10 @@ class CanvasPanel {
   dispose(): void {
     vscode.commands.executeCommand('setContext', 'jamDesk.active', false)
     this.terminals.disposeAll()
+    for (const entry of this.watchedFiles.values()) entry.watcher?.dispose()
+    this.watchedFiles.clear()
+    for (const timer of this.fileSendTimers.values()) clearTimeout(timer)
+    this.fileSendTimers.clear()
     for (const cb of this.disposeCallbacks.splice(0)) cb()
     while (this.disposables.length) this.disposables.pop()?.dispose()
     this.panel.dispose()
@@ -629,6 +676,13 @@ class CanvasPanel {
         await this.context.workspaceState.update(DOCUMENT_KEY, msg.document)
         break
       }
+      case 'agentSummary': {
+        // The webview computed a row of emoji for the running coding agents.
+        // Append it to the tab title (empty string → just the base title).
+        const emoji = typeof msg.emoji === 'string' ? msg.emoji : ''
+        this.panel.title = emoji ? `${PANEL_TITLE} ${emoji}` : PANEL_TITLE
+        break
+      }
       case 'openFile': {
         await this.openFile(msg.filePath)
         break
@@ -639,6 +693,27 @@ class CanvasPanel {
       }
       case 'addCurrentFile': {
         this.addCurrentFile()
+        break
+      }
+      case 'dropFiles': {
+        this.addDroppedFiles(msg.uris, msg.at)
+        break
+      }
+      case 'file.watch': {
+        if (typeof msg.filePath === 'string') this.watchFile(msg.filePath)
+        break
+      }
+      case 'file.unwatch': {
+        if (typeof msg.filePath === 'string') this.unwatchFile(msg.filePath)
+        break
+      }
+      case 'clipboard.write': {
+        await vscode.env.clipboard.writeText(String(msg.text ?? ''))
+        break
+      }
+      case 'clipboard.read': {
+        const text = await vscode.env.clipboard.readText()
+        this.post({ type: 'clipboard.text', id: msg.id, text })
         break
       }
       case 'export': {
@@ -687,6 +762,103 @@ class CanvasPanel {
     return uri.fsPath
   }
 
+  // ---- File previews (read-only, live-synced) -----------------------------
+
+  /** The watched-file key (the webview's filePath) whose resolved path matches
+   * `fsPath`, if any. Used to route editor change/save events to the webview. */
+  private findWatchKeyByFsPath(fsPath: string): string | undefined {
+    for (const [key, entry] of this.watchedFiles) {
+      if (entry.fsPath === fsPath) return key
+    }
+    return undefined
+  }
+
+  /** Start (or refcount) a read-only preview watch for `filePath` and push its
+   * current contents to the webview. */
+  private watchFile(filePath: string): void {
+    const existing = this.watchedFiles.get(filePath)
+    if (existing) {
+      existing.refs++
+      void this.sendFileContent(filePath)
+      return
+    }
+    const uri = this.resolveUri(filePath)
+    let watcher: vscode.FileSystemWatcher | undefined
+    try {
+      const dir = vscode.Uri.file(path.dirname(uri.fsPath))
+      watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(dir, path.basename(uri.fsPath)),
+      )
+      watcher.onDidChange(() => this.scheduleFileSend(filePath), null, this.disposables)
+      watcher.onDidCreate(() => this.scheduleFileSend(filePath), null, this.disposables)
+      watcher.onDidDelete(
+        () => this.post({ type: 'file.error', filePath, reason: 'missing' }),
+        null,
+        this.disposables,
+      )
+    } catch {
+      // Watcher creation can fail for exotic schemes — the preview still works,
+      // it just won't auto-refresh on external disk changes.
+    }
+    this.watchedFiles.set(filePath, { refs: 1, watcher, fsPath: uri.fsPath })
+    void this.sendFileContent(filePath)
+  }
+
+  private unwatchFile(filePath: string): void {
+    const entry = this.watchedFiles.get(filePath)
+    if (!entry) return
+    if (--entry.refs > 0) return
+    this.watchedFiles.delete(filePath)
+    entry.watcher?.dispose()
+    const timer = this.fileSendTimers.get(filePath)
+    if (timer) {
+      clearTimeout(timer)
+      this.fileSendTimers.delete(filePath)
+    }
+  }
+
+  /** Debounced content push — collapses the burst of onDidChangeTextDocument /
+   * watcher events that a single edit or save produces. */
+  private scheduleFileSend(filePath: string): void {
+    const prev = this.fileSendTimers.get(filePath)
+    if (prev) clearTimeout(prev)
+    this.fileSendTimers.set(
+      filePath,
+      setTimeout(() => {
+        this.fileSendTimers.delete(filePath)
+        void this.sendFileContent(filePath)
+      }, 120),
+    )
+  }
+
+  /** Read the current contents of a watched file and post them to the webview.
+   * Prefers an open TextDocument (so unsaved edits show live), else reads disk. */
+  private async sendFileContent(filePath: string): Promise<void> {
+    if (!this.watchedFiles.has(filePath)) return
+    const uri = this.resolveUri(filePath)
+    try {
+      const open = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath)
+      let text: string
+      let languageId: string | undefined
+      if (open) {
+        text = open.getText()
+        languageId = open.languageId
+      } else {
+        const bytes = await vscode.workspace.fs.readFile(uri)
+        if (looksBinary(bytes)) {
+          this.post({ type: 'file.error', filePath, reason: 'binary' })
+          return
+        }
+        text = Buffer.from(bytes).toString('utf8')
+      }
+      const truncated = text.length > MAX_PREVIEW_CHARS
+      if (truncated) text = text.slice(0, MAX_PREVIEW_CHARS)
+      this.post({ type: 'file.content', filePath, content: text, languageId, truncated })
+    } catch {
+      this.post({ type: 'file.error', filePath, reason: 'missing' })
+    }
+  }
+
   private async openFile(filePath: string): Promise<void> {
     try {
       const uri = this.resolveUri(filePath)
@@ -726,6 +898,38 @@ class CanvasPanel {
       filePath: this.toWorkspaceRelative(uri),
       title: path.basename(uri.fsPath),
     })
+  }
+
+  /** Files dragged from the explorer onto the canvas: resolve each `file:` URI to
+   * a workspace-relative path and add a node at the drop point. Directories and
+   * non-file schemes are ignored. `at` is the drop position in canvas space. */
+  private addDroppedFiles(uris: unknown, at: unknown): void {
+    if (!Array.isArray(uris)) return
+    const point =
+      at && typeof at === 'object' && Number.isFinite((at as any).x) && Number.isFinite((at as any).y)
+        ? { x: (at as any).x, y: (at as any).y }
+        : undefined
+    for (const raw of uris) {
+      if (typeof raw !== 'string' || !raw) continue
+      let uri: vscode.Uri
+      try {
+        uri = vscode.Uri.parse(raw, true)
+      } catch {
+        continue
+      }
+      if (uri.scheme !== 'file') continue
+      try {
+        if (fs.statSync(uri.fsPath).isDirectory()) continue
+      } catch {
+        continue
+      }
+      this.post({
+        type: 'addFileNode',
+        filePath: this.toWorkspaceRelative(uri),
+        title: path.basename(uri.fsPath),
+        at: point,
+      })
+    }
   }
 
   private async exportDocument(document: CanvasDocument): Promise<void> {

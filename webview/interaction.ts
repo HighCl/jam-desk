@@ -178,14 +178,20 @@ export class CanvasInteraction {
       if (nodeId && nodeId === focusedNodeId) {
         // Terminal: xterm owns the wheel entirely (scrollback scrolling, or
         // arrow-key emulation in the alternate buffer). Its real scroller is
-        // the inner .xterm-viewport, so the content-box check below would
-        // never match — let the event through untouched instead.
+        // the inner .xterm-viewport, so the walk below could miss it — let the
+        // event through untouched instead.
         if (target.closest('.cnode-terminal')) return
+        // Any scroll container between the cursor and the content box that can
+        // move in the wheel's axis claims the scroll: the note textarea, the
+        // file-preview <pre>, or the content box itself. Returning (without
+        // preventDefault) lets the browser scroll it natively instead of panning.
         const isHorizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY)
-        const canScroll = isHorizontal
-          ? nodeContent.scrollWidth > nodeContent.clientWidth
-          : nodeContent.scrollHeight > nodeContent.clientHeight
-        if (canScroll) return // node content handles it
+        let el: HTMLElement | null = target
+        while (el) {
+          if (this.canScrollInAxis(el, isHorizontal)) return
+          if (el === nodeContent) break
+          el = el.parentElement
+        }
       }
     }
 
@@ -223,6 +229,20 @@ export class CanvasInteraction {
         this.store.setViewportOffset({ x: vo.x - dx, y: vo.y - dy })
       })
     }
+  }
+
+  /** Whether `el` is a real scroll container with overflowing content in the
+   * wheel's dominant axis (so a plain scroll over it should move it, not pan). */
+  private canScrollInAxis(el: HTMLElement, horizontal: boolean): boolean {
+    const scrollSize = horizontal ? el.scrollWidth : el.scrollHeight
+    const clientSize = horizontal ? el.clientWidth : el.clientHeight
+    if (scrollSize <= clientSize) return false
+    // Textareas scroll their own value without an explicit overflow style.
+    if (el.tagName === 'TEXTAREA') return true
+    const overflow = horizontal
+      ? getComputedStyle(el).overflowX
+      : getComputedStyle(el).overflowY
+    return overflow === 'auto' || overflow === 'scroll'
   }
 
   // ---- Mouse down -----------------------------------------------------------

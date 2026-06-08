@@ -211,48 +211,162 @@ body.canvas-interacting {
 
 /* ---- File card ---------------------------------------------------------- */
 
+/* The file card owns its whole content area: the preview pre scrolls itself,
+   so the outer content does not also scroll or pad. */
+.cnode.is-file .cnode-content {
+  padding: 0;
+  overflow: hidden;
+}
+
 .cnode-file {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 14px 16px;
   height: 100%;
+  min-height: 0;
+}
+
+.cnode-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-soft, rgba(128, 128, 128, 0.18));
 }
 
 .cnode-file-icon {
   line-height: 1;
   color: var(--text-muted);
+  flex: 0 0 auto;
 }
 
-.cnode-file-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-main);
-  word-break: break-all;
-}
-
+/* The filename already shows in the title bar, so the supplementary path can
+   truncate from the right without losing essential context. */
 .cnode-file-path {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 11px;
   color: var(--text-muted);
-  word-break: break-all;
-  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cnode-file-open {
-  align-self: flex-start;
-  margin-top: auto;
-  padding: 4px 12px;
+  flex: 0 0 auto;
+  padding: 3px 10px;
   border: none;
   border-radius: 4px;
   background: var(--vscode-button-background, var(--focus-blue));
   color: var(--accent-fg);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 }
 
 .cnode-file-open:hover {
   background: var(--vscode-button-hoverBackground, var(--focus-blue));
+}
+
+.cnode-file-code {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  background: var(--vscode-editor-background, var(--surface-2));
+  color: var(--vscode-editor-foreground, var(--text-main));
+  font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 4;
+  white-space: pre;
+}
+
+.cnode-file-code code {
+  font: inherit;
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+
+.cnode-file-status {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-soft, rgba(128, 128, 128, 0.18));
+}
+
+.cnode-file-status.is-error {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.cnode-file-status.is-hidden {
+  display: none;
+}
+
+/* ---- highlight.js token theme (mapped to VS Code editor token colors) ---- */
+
+.cnode-file-code .hljs-comment,
+.cnode-file-code .hljs-quote {
+  color: var(--vscode-editorLineNumber-foreground, #6a9955);
+  font-style: italic;
+}
+
+.cnode-file-code .hljs-keyword,
+.cnode-file-code .hljs-selector-tag,
+.cnode-file-code .hljs-built_in,
+.cnode-file-code .hljs-name,
+.cnode-file-code .hljs-tag {
+  color: var(--vscode-debugTokenExpression-name, #569cd6);
+}
+
+.cnode-file-code .hljs-string,
+.cnode-file-code .hljs-title,
+.cnode-file-code .hljs-section,
+.cnode-file-code .hljs-attribute,
+.cnode-file-code .hljs-literal,
+.cnode-file-code .hljs-template-tag,
+.cnode-file-code .hljs-template-variable,
+.cnode-file-code .hljs-type,
+.cnode-file-code .hljs-addition {
+  color: var(--vscode-debugTokenExpression-string, #ce9178);
+}
+
+.cnode-file-code .hljs-number,
+.cnode-file-code .hljs-bullet,
+.cnode-file-code .hljs-symbol {
+  color: var(--vscode-debugTokenExpression-number, #b5cea8);
+}
+
+.cnode-file-code .hljs-title.function_,
+.cnode-file-code .hljs-function .hljs-title {
+  color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+}
+
+.cnode-file-code .hljs-variable,
+.cnode-file-code .hljs-template-variable,
+.cnode-file-code .hljs-attr,
+.cnode-file-code .hljs-property,
+.cnode-file-code .hljs-params {
+  color: var(--vscode-symbolIcon-variableForeground, #9cdcfe);
+}
+
+.cnode-file-code .hljs-meta,
+.cnode-file-code .hljs-comment .hljs-doctag {
+  color: var(--vscode-descriptionForeground, #808080);
+}
+
+.cnode-file-code .hljs-deletion {
+  color: #ce9178;
+}
+
+.cnode-file-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.cnode-file-code .hljs-strong {
+  font-weight: bold;
 }
 
 /* ---- Terminal ----------------------------------------------------------- */
@@ -523,8 +637,8 @@ body.canvas-interacting {
 }
 
 .cnode-file-icon svg {
-  width: 26px;
-  height: 26px;
+  width: 15px;
+  height: 15px;
 }
 
 .minimap-move svg {

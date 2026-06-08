@@ -28,6 +28,8 @@ import {
 import { isMaximized } from './types'
 import { TerminalController } from './terminalView'
 import type { TerminalBridge } from './terminalView'
+import type { FileBridge, FileContentData } from './persistence'
+import { highlightInto } from './fileHighlight'
 import { icons } from './icons'
 import { t } from './i18n'
 import type { MessageKey } from './i18n'
@@ -37,6 +39,8 @@ export interface CanvasViewHooks {
   onOpenFile?: (filePath: string) => void
   /** Bridge to the host PTY backend, used by `terminal` nodes. */
   terminals?: TerminalBridge
+  /** Bridge to the host file reader/watcher, used by `file` node previews. */
+  files?: FileBridge
 }
 
 interface NodeElements {
@@ -49,8 +53,13 @@ interface NodeElements {
   // note
   textarea?: HTMLTextAreaElement
   // file
-  fileNameEl?: HTMLSpanElement
   filePathEl?: HTMLSpanElement
+  fileCodeEl?: HTMLElement
+  fileStatusEl?: HTMLDivElement
+  /** The path currently subscribed via the file bridge (re-subscribe on change). */
+  watchedPath?: string
+  /** Unsubscribe from the file bridge for this node's current path. */
+  fileUnsub?: () => void
   // terminal
   terminal?: TerminalController
   agentBadge?: HTMLSpanElement
@@ -83,11 +92,6 @@ interface RegionElements {
   container: HTMLDivElement
   labelBar: HTMLDivElement
   labelText: HTMLSpanElement
-}
-
-function basename(p: string): string {
-  const parts = p.split('/').filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : p
 }
 
 function effectiveToolOf(store: CanvasStore, spaceHeld: () => boolean): 'select' | 'hand' {
@@ -159,6 +163,7 @@ export class CanvasView {
     for (const [id, el] of this.nodeEls) {
       if (!seen.has(id)) {
         this.clearNodeTimers(el)
+        el.fileUnsub?.()
         el.terminal?.dispose()
         el.container.remove()
         this.nodeEls.delete(id)
@@ -282,6 +287,7 @@ export class CanvasView {
             onAgent: (agent) => this.store.updateTerminalAgent(node.id, { agent }),
             onTitleChange: (title) => this.store.updateTerminalAgent(node.id, { oscTitle: title }),
             onActivity: (activity) => this.store.updateTerminalAgent(node.id, { activity }),
+            getZoom: () => this.store.getState().zoomLevel,
           },
           node.initialCommand,
         )
@@ -292,31 +298,51 @@ export class CanvasView {
         host.textContent = t('terminalUnavailable')
       }
     } else {
+      container.classList.add('is-file')
       const file = document.createElement('div')
       file.className = 'cnode-file'
-      const icon = document.createElement('div')
+
+      // Header: file icon + relative path + open-in-editor button.
+      const head = document.createElement('div')
+      head.className = 'cnode-file-head'
+      head.setAttribute('data-grab', '')
+      const icon = document.createElement('span')
       icon.className = 'cnode-file-icon'
       icon.innerHTML = icons.file
-      const nameEl = document.createElement('span')
-      nameEl.className = 'cnode-file-name'
       const pathEl = document.createElement('span')
       pathEl.className = 'cnode-file-path'
       const openBtn = document.createElement('button')
       openBtn.className = 'cnode-file-open'
       openBtn.textContent = t('open')
+      openBtn.title = t('open')
       openBtn.addEventListener('click', (e) => {
         e.stopPropagation()
         const fp = this.store.getState().nodes[node.id]?.filePath
         if (fp) this.hooks.onOpenFile?.(fp)
       })
-      file.append(icon, nameEl, pathEl, openBtn)
+      head.append(icon, pathEl, openBtn)
+
+      // Read-only syntax-highlighted preview, kept in sync by the file bridge.
+      const pre = document.createElement('pre')
+      pre.className = 'cnode-file-code'
+      const code = document.createElement('code')
+      code.className = 'hljs'
+      pre.appendChild(code)
+
+      // Status line (loading / missing / binary / truncated).
+      const status = document.createElement('div')
+      status.className = 'cnode-file-status'
+      status.textContent = t('filePreviewLoading')
+
+      file.append(head, pre, status)
       content.appendChild(file)
       content.addEventListener('dblclick', () => {
         const fp = this.store.getState().nodes[node.id]?.filePath
         if (fp) this.hooks.onOpenFile?.(fp)
       })
-      el.fileNameEl = nameEl
       el.filePathEl = pathEl
+      el.fileCodeEl = code
+      el.fileStatusEl = status
     }
 
     card.append(titlebar, content)
@@ -433,8 +459,8 @@ export class CanvasView {
       }
     } else if (node.kind === 'file') {
       const fp = node.filePath ?? ''
-      if (el.fileNameEl) el.fileNameEl.textContent = node.title || basename(fp) || t('defaultFile')
       if (el.filePathEl) el.filePathEl.textContent = fp
+      this.syncFileWatch(el, fp)
     }
 
     // Accent color (left border tint).
@@ -529,6 +555,54 @@ export class CanvasView {
       }
     } else {
       c.style.removeProperty('--agent-color')
+    }
+  }
+
+  /** (Re)subscribe a file node to live content for `filePath`. No-op if the path
+   * is unchanged; tears down the previous subscription when the path changes. */
+  private syncFileWatch(el: NodeElements, filePath: string): void {
+    if (el.watchedPath === filePath) return
+    el.fileUnsub?.()
+    el.fileUnsub = undefined
+    el.watchedPath = filePath
+    if (el.fileCodeEl) el.fileCodeEl.textContent = ''
+    if (el.fileStatusEl) {
+      el.fileStatusEl.textContent = t('filePreviewLoading')
+      el.fileStatusEl.classList.remove('is-error', 'is-hidden')
+    }
+    if (!filePath || !this.hooks.files) return
+    el.fileUnsub = this.hooks.files.watch(filePath, (data) => this.renderFilePreview(el, filePath, data))
+  }
+
+  /** Render a file-bridge update into a file node's preview / status line. */
+  private renderFilePreview(el: NodeElements, filePath: string, data: FileContentData): void {
+    const status = el.fileStatusEl
+    if (data.error) {
+      if (el.fileCodeEl) el.fileCodeEl.textContent = ''
+      if (status) {
+        status.textContent = t(
+          data.error === 'missing'
+            ? 'filePreviewMissing'
+            : data.error === 'binary'
+              ? 'filePreviewBinary'
+              : 'filePreviewUnavailable',
+        )
+        status.classList.add('is-error')
+        status.classList.remove('is-hidden')
+      }
+      return
+    }
+    if (el.fileCodeEl) {
+      highlightInto(el.fileCodeEl, data.content ?? '', data.languageId, filePath)
+    }
+    if (status) {
+      status.classList.remove('is-error')
+      if (data.truncated) {
+        status.textContent = t('filePreviewTruncated')
+        status.classList.remove('is-hidden')
+      } else {
+        status.classList.add('is-hidden')
+      }
     }
   }
 
@@ -682,6 +756,7 @@ export class CanvasView {
     this.unsubscribe()
     for (const el of this.nodeEls.values()) {
       this.clearNodeTimers(el)
+      el.fileUnsub?.()
       el.terminal?.dispose()
       el.container.remove()
     }

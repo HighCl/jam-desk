@@ -8,7 +8,8 @@
 // =============================================================================
 
 import type { CanvasStore } from './store'
-import type { CanvasDocument } from './types'
+import type { CanvasDocument, Point } from './types'
+import { agentActivityEmojiSummary } from './types'
 import { applySettings } from './settings'
 import type { GridStyle } from './settings'
 import type { TerminalBridge } from './terminalView'
@@ -31,17 +32,41 @@ interface SettingsPayload {
 
 type HostMessage =
   | { type: 'init'; document?: CanvasDocument | null; settings?: SettingsPayload }
-  | { type: 'addFileNode'; filePath: string; title?: string }
+  | { type: 'addFileNode'; filePath: string; title?: string; at?: Point }
   | { type: 'loadDocument'; document: CanvasDocument }
   | { type: 'settings'; settings: SettingsPayload }
   | { type: 'command'; command: string }
   | { type: 'terminal.data'; id: string; data: string }
   | { type: 'terminal.exit'; id: string; exitCode: number }
   | { type: 'terminal.agent'; id: string; agent: 'claude' | 'codex' | null }
+  | { type: 'clipboard.text'; id: string; text: string }
+  | { type: 'file.content'; filePath: string; content: string; languageId?: string; truncated?: boolean }
+  | { type: 'file.error'; filePath: string; reason: FileError }
 
 interface TerminalHandlers {
   onData: (data: string) => void
   onExit: (code: number) => void
+  onPaste?: (text: string) => void
+}
+
+/** Why a watched file could not be previewed. */
+export type FileError = 'missing' | 'binary' | 'read'
+
+/** A file preview update pushed by the host (content, or an error). */
+export interface FileContentData {
+  content?: string
+  languageId?: string
+  truncated?: boolean
+  error?: FileError
+}
+
+/** Webview side of the read-only file-preview protocol, handed to file nodes. */
+export interface FileBridge {
+  /** Subscribe to live content for `filePath`; the handler fires immediately
+   * (once the host responds) and again whenever the file changes on disk or in
+   * an open editor. Returns an unsubscribe fn that stops the host watcher when
+   * the last subscriber for that path leaves. */
+  watch(filePath: string, handler: (data: FileContentData) => void): () => void
 }
 
 export interface PersistenceHooks {
@@ -60,9 +85,13 @@ export class Persistence {
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private suppressSave = false
   private terminalHandlers = new Map<string, TerminalHandlers>()
+  private fileHandlers = new Map<string, Set<(data: FileContentData) => void>>()
 
   /** The webview side of the terminal protocol, handed to terminal nodes. */
   readonly terminals: TerminalBridge
+
+  /** The webview side of the file-preview protocol, handed to file nodes. */
+  readonly files: FileBridge
 
   constructor(
     private store: CanvasStore,
@@ -79,12 +108,36 @@ export class Persistence {
         this.vscode.postMessage({ type: 'terminal.resize', id, cols, rows }),
       ack: (id, bytes) => this.vscode.postMessage({ type: 'terminal.ack', id, bytes }),
       kill: (id) => this.vscode.postMessage({ type: 'terminal.kill', id }),
+      copy: (text) => this.vscode.postMessage({ type: 'clipboard.write', text }),
+      paste: (id) => this.vscode.postMessage({ type: 'clipboard.read', id }),
       subscribe: (id, handlers) => {
         this.terminalHandlers.set(id, handlers)
         return () => {
           // Only delete if still the same registration (a recreated node may have
           // re-registered under the same id).
           if (this.terminalHandlers.get(id) === handlers) this.terminalHandlers.delete(id)
+        }
+      },
+    }
+
+    this.files = {
+      watch: (filePath, handler) => {
+        let set = this.fileHandlers.get(filePath)
+        if (!set) {
+          set = new Set()
+          this.fileHandlers.set(filePath, set)
+          // First subscriber for this path — ask the host to read + watch it.
+          this.vscode.postMessage({ type: 'file.watch', filePath })
+        }
+        set.add(handler)
+        return () => {
+          const s = this.fileHandlers.get(filePath)
+          if (!s) return
+          s.delete(handler)
+          if (s.size === 0) {
+            this.fileHandlers.delete(filePath)
+            this.vscode.postMessage({ type: 'file.unwatch', filePath })
+          }
         }
       },
     }
@@ -101,6 +154,13 @@ export class Persistence {
         this.scheduleSave()
       }
     })
+
+    // Mirror running coding-agent statuses into the panel (editor tab) title as
+    // a row of emoji. `agents` is an immutable slice, so it only differs on a
+    // real status change (detection, activity, or an agent vanishing).
+    this.store.subscribe((next, prev) => {
+      if (next.agents !== prev.agents) this.postAgentSummary()
+    })
   }
 
   /** Announce readiness so the host sends the initial document + settings. */
@@ -116,6 +176,15 @@ export class Persistence {
       this.saveTimer = null
       this.vscode.postMessage({ type: 'save', document: this.store.toDocument() })
     }, SAVE_DEBOUNCE_MS)
+  }
+
+  /** Push the current agent-status emoji row to the host, which appends it to
+   * the panel title. Sent on every agents-slice change (empty string clears it). */
+  private postAgentSummary(): void {
+    this.vscode.postMessage({
+      type: 'agentSummary',
+      emoji: agentActivityEmojiSummary(this.store.getState().agents),
+    })
   }
 
   /** Flush any pending save immediately (e.g. on explicit export). */
@@ -137,6 +206,12 @@ export class Persistence {
 
   addCurrentFile(): void {
     this.vscode.postMessage({ type: 'addCurrentFile' })
+  }
+
+  /** Files dragged from the VS Code explorer onto the canvas. The host resolves
+   * each URI to a workspace path and echoes back an addFileNode at `at`. */
+  dropFiles(uris: string[], at: Point): void {
+    this.vscode.postMessage({ type: 'dropFiles', uris, at })
   }
 
   exportDocument(): void {
@@ -167,7 +242,7 @@ export class Persistence {
         break
       }
       case 'addFileNode': {
-        this.store.addNode('file', { filePath: msg.filePath, title: msg.title })
+        this.store.addNode('file', { filePath: msg.filePath, title: msg.title }, msg.at)
         break
       }
       case 'loadDocument': {
@@ -198,6 +273,21 @@ export class Persistence {
       case 'terminal.agent': {
         // Host process scan saw a coding agent appear/vanish in this PTY.
         this.store.updateTerminalAgent(msg.id, { agent: msg.agent })
+        break
+      }
+      case 'clipboard.text': {
+        // Host read the system clipboard in response to paste(id).
+        this.terminalHandlers.get(msg.id)?.onPaste?.(msg.text)
+        break
+      }
+      case 'file.content': {
+        this.fileHandlers.get(msg.filePath)?.forEach((h) =>
+          h({ content: msg.content, languageId: msg.languageId, truncated: msg.truncated }),
+        )
+        break
+      }
+      case 'file.error': {
+        this.fileHandlers.get(msg.filePath)?.forEach((h) => h({ error: msg.reason }))
         break
       }
     }
