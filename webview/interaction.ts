@@ -29,6 +29,11 @@ function rectsIntersect(
   return !(ax + aw <= bx || bx + bw <= ax || ay + ah <= by || by + bh <= ay)
 }
 
+/** Map MouseEvent.button (0/1/2) to its MouseEvent.buttons bitmask (1/4/2). */
+function buttonMask(button: number): number {
+  return button === 0 ? 1 : button === 1 ? 4 : button === 2 ? 2 : 0
+}
+
 export interface ContextMenuRequest {
   x: number
   y: number
@@ -80,6 +85,7 @@ export class CanvasInteraction {
   private onMouseMoveNative = (e: MouseEvent) => this.handleMouseMove(e)
   private onMouseUpNative = (e: MouseEvent) => this.handleMouseUp(e)
   private onContextMenuNative = (e: MouseEvent) => e.preventDefault()
+  private onBlurNative = () => this.endPan()
 
   constructor(
     private canvasEl: HTMLElement,
@@ -90,8 +96,13 @@ export class CanvasInteraction {
     // passive:false so preventDefault on wheel actually suppresses page zoom/scroll.
     canvasEl.addEventListener('wheel', this.onWheelNative, { capture: true, passive: false })
     canvasEl.addEventListener('mousedown', this.onMouseDownNative)
-    canvasEl.addEventListener('mousemove', this.onMouseMoveNative)
-    canvasEl.addEventListener('mouseup', this.onMouseUpNative)
+    // Pan tracking lives on window (not canvasEl) so a drag/release that leaves the
+    // canvas still updates and, crucially, ends the pan. Listening only on canvasEl
+    // dropped the mouseup when the button was released outside the canvas, leaving
+    // isPanning stuck true on re-entry. Mirrors the marquee's window listeners.
+    window.addEventListener('mousemove', this.onMouseMoveNative)
+    window.addEventListener('mouseup', this.onMouseUpNative)
+    window.addEventListener('blur', this.onBlurNative)
     canvasEl.addEventListener('contextmenu', this.onContextMenuNative)
   }
 
@@ -364,10 +375,33 @@ export class CanvasInteraction {
     window.addEventListener('blur', handleMarqueeBlur)
   }
 
+  // ---- Pan teardown ---------------------------------------------------------
+
+  /** Reset pan state and cursor. Safe to call when not panning (e.g. on blur).
+   * Deliberately leaves rightClickDidDrag/velocity buffer untouched so the
+   * inertia path in handleMouseUp can still read them after this runs. */
+  private endPan(): void {
+    if (!this.isPanning) return
+    this.isPanning = false
+    this.panButton = null
+    this.lastPanPos = null
+    this.rightClickStart = null
+    this.canvasEl.style.cursor = this.effectiveTool() === 'hand' ? 'grab' : ''
+    document.body.classList.remove('canvas-interacting')
+  }
+
   // ---- Mouse move (pan) -----------------------------------------------------
 
   private handleMouseMove(e: MouseEvent): void {
     if (!this.isPanning || !this.lastPanPos) return
+
+    // Re-entry sync: if the button that started the pan is no longer held, a
+    // mouseup was missed (e.g. released over another window/app) — end the pan
+    // instead of dragging the view on a button-less move.
+    if (this.panButton !== null && (e.buttons & buttonMask(this.panButton)) === 0) {
+      this.endPan()
+      return
+    }
 
     if (!this.rightClickDidDrag && this.rightClickStart) {
       const dx = e.clientX - this.rightClickStart.x
@@ -396,9 +430,12 @@ export class CanvasInteraction {
     if (e.button === 2) {
       if (!this.rightClickDidDrag && this.rightClickStart) {
         const target = e.target as HTMLElement
+        // mouseup is window-level now, so only open the menu when the release
+        // is actually over the empty canvas (not a node/region or off-canvas UI).
+        const overCanvas = this.canvasEl.contains(target)
         const isOnInteractive =
           target.closest('[data-node-id]') !== null || target.closest('[data-region-id]') !== null
-        if (!isOnInteractive) {
+        if (overCanvas && !isOnInteractive) {
           const rect = this.rect()
           const viewPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top }
           const { zoomLevel, viewportOffset } = this.store.getState()
@@ -409,12 +446,7 @@ export class CanvasInteraction {
     }
 
     if (e.button === 2 || e.button === this.panButton) {
-      this.isPanning = false
-      this.panButton = null
-      this.lastPanPos = null
-      this.rightClickStart = null
-      this.canvasEl.style.cursor = this.effectiveTool() === 'hand' ? 'grab' : ''
-      document.body.classList.remove('canvas-interacting')
+      this.endPan()
     }
 
     if (e.button === 2) {
@@ -527,8 +559,9 @@ export class CanvasInteraction {
     this.clearMarquee()
     this.canvasEl.removeEventListener('wheel', this.onWheelNative, { capture: true } as EventListenerOptions)
     this.canvasEl.removeEventListener('mousedown', this.onMouseDownNative)
-    this.canvasEl.removeEventListener('mousemove', this.onMouseMoveNative)
-    this.canvasEl.removeEventListener('mouseup', this.onMouseUpNative)
+    window.removeEventListener('mousemove', this.onMouseMoveNative)
+    window.removeEventListener('mouseup', this.onMouseUpNative)
+    window.removeEventListener('blur', this.onBlurNative)
     this.canvasEl.removeEventListener('contextmenu', this.onContextMenuNative)
   }
 }
