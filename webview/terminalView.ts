@@ -22,6 +22,8 @@ import { t } from './i18n'
 import type { AgentActivity, AgentKind } from './types'
 import { classifyAgentTitle, cleanAgentTitle } from './types'
 
+const BASE_TERMINAL_FONT_SIZE = 12
+
 /** The webview side of the terminal protocol; implemented by Persistence. */
 export interface TerminalBridge {
   /** Ask the host to spawn a PTY for this terminal id. */
@@ -298,6 +300,7 @@ export class TerminalController {
    * once typed into the shell, or cancelled if the user types first. */
   private initialCommand: string | undefined
   private initialCommandTimer: number | null = null
+  private canvasZoom = 1
 
   constructor(
     private id: string,
@@ -311,7 +314,7 @@ export class TerminalController {
     this.term = new Terminal({
       theme: readTheme(),
       fontFamily: cssVar('--vscode-editor-font-family', 'Menlo, Monaco, "Courier New", monospace'),
-      fontSize: 12,
+      fontSize: BASE_TERMINAL_FONT_SIZE,
       cursorBlink: true,
       scrollback: 1000,
       allowProposedApi: false,
@@ -510,6 +513,16 @@ export class TerminalController {
       return
     }
     this.term.focus()
+  }
+
+  setCanvasZoom(zoom: number): void {
+    const nextZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
+    if (Math.abs(nextZoom - this.canvasZoom) < 0.01) return
+    this.canvasZoom = nextZoom
+    this.term.options.fontSize = Math.max(6, BASE_TERMINAL_FONT_SIZE * nextZoom)
+    if (!this.mounted) return
+    this.scheduleFit()
+    this.term.refresh(0, this.term.rows - 1)
   }
 
   /** Make xterm's pointer→cell mapping account for the world's `scale(zoom)`

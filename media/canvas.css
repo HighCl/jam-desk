@@ -89,6 +89,7 @@ body.canvas-interacting {
 
 .cnode {
   position: absolute;
+  --canvas-zoom: 1;
   transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.12s ease;
   transform-origin: center center;
 }
@@ -146,7 +147,7 @@ body.canvas-interacting {
 
 .cnode-title {
   flex: 1;
-  font-size: 12px;
+  font-size: calc(12px * var(--canvas-zoom));
   font-weight: 500;
   color: var(--text-main);
   overflow: hidden;
@@ -205,7 +206,7 @@ body.canvas-interacting {
   color: var(--text-main);
   padding: 10px 12px;
   font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
-  font-size: 13px;
+  font-size: calc(13px * var(--canvas-zoom));
   line-height: 1.5;
 }
 
@@ -276,7 +277,7 @@ body.canvas-interacting {
   background: var(--vscode-editor-background, var(--surface-2));
   color: var(--vscode-editor-foreground, var(--text-main));
   font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
-  font-size: 12px;
+  font-size: calc(12px * var(--canvas-zoom));
   line-height: 1.5;
   tab-size: 4;
   white-space: pre;
@@ -551,6 +552,7 @@ body.canvas-interacting {
 
 .cregion {
   position: absolute;
+  --canvas-zoom: 1;
   border-radius: 10px;
   border: 1.5px solid color-mix(in srgb, var(--region-color, var(--border-subtle)) 55%, transparent);
   background: color-mix(in srgb, var(--region-color, var(--border-subtle)) 9%, transparent);
@@ -575,7 +577,7 @@ body.canvas-interacting {
   display: flex;
   align-items: center;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: calc(12px * var(--canvas-zoom));
   font-weight: 600;
   color: var(--text-main);
   cursor: grab;
@@ -594,7 +596,7 @@ body.canvas-interacting {
   border-radius: 4px;
   background: var(--vscode-input-background, var(--surface-1));
   color: var(--vscode-input-foreground, var(--text-main));
-  font-size: 12px;
+  font-size: calc(12px * var(--canvas-zoom));
   font-weight: 600;
   padding: 2px 4px;
 }

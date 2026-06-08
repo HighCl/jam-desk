@@ -4,7 +4,7 @@
 // Ported from the upstream IDE's SnapGuides.tsx.
 // =============================================================================
 
-import type { CanvasStore } from './store'
+import type { CanvasData, CanvasStore } from './store'
 import type { SnapGuides } from './types'
 
 const COLOR = 'rgba(74, 158, 255, 0.7)'
@@ -14,6 +14,9 @@ export class SnapGuidesLayer {
   private el: HTMLDivElement
   private unsubscribe: () => void
   private lastRef: SnapGuides | null = null
+  private lastZoom = 0
+  private lastOffsetX = 0
+  private lastOffsetY = 0
 
   constructor(world: HTMLElement, store: CanvasStore) {
     this.el = document.createElement('div')
@@ -24,16 +27,27 @@ export class SnapGuidesLayer {
     this.el.style.pointerEvents = 'none'
     world.appendChild(this.el)
 
-    this.render(store.getState().snapGuides)
+    this.render(store.getState())
     this.unsubscribe = store.subscribe((state) => {
-      if (state.snapGuides !== this.lastRef) {
-        this.render(state.snapGuides)
+      if (
+        state.snapGuides !== this.lastRef ||
+        state.zoomLevel !== this.lastZoom ||
+        state.viewportOffset.x !== this.lastOffsetX ||
+        state.viewportOffset.y !== this.lastOffsetY
+      ) {
+        this.render(state)
       }
     })
   }
 
-  private render(guides: SnapGuides): void {
+  private render(state: CanvasData): void {
+    const guides = state.snapGuides
     this.lastRef = guides
+    const zoom = state.zoomLevel
+    const offset = state.viewportOffset
+    this.lastZoom = zoom
+    this.lastOffsetX = offset.x
+    this.lastOffsetY = offset.y
     this.el.replaceChildren()
     for (const line of guides.lines) {
       const div = document.createElement('div')
@@ -41,7 +55,7 @@ export class SnapGuidesLayer {
       div.style.pointerEvents = 'none'
       const dashed = line.type === 'center'
       if (line.axis === 'x') {
-        div.style.left = `${line.position}px`
+        div.style.left = `${line.position * zoom + offset.x}px`
         div.style.top = `${-EXTENT / 2}px`
         div.style.width = '1px'
         div.style.height = `${EXTENT}px`
@@ -52,7 +66,7 @@ export class SnapGuidesLayer {
         }
       } else {
         div.style.left = `${-EXTENT / 2}px`
-        div.style.top = `${line.position}px`
+        div.style.top = `${line.position * zoom + offset.y}px`
         div.style.width = `${EXTENT}px`
         div.style.height = '1px'
         if (dashed) {

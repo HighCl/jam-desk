@@ -118,6 +118,8 @@ export class CanvasView {
     this.unsubscribe = store.subscribe((next, prev) => {
       if (
         next.regions !== prev.regions ||
+        next.zoomLevel !== prev.zoomLevel ||
+        next.viewportOffset !== prev.viewportOffset ||
         next.selectedRegionIds !== prev.selectedRegionIds ||
         next.selectedNodeIds !== prev.selectedNodeIds ||
         next.dropTargetRegionId !== prev.dropTargetRegionId
@@ -126,6 +128,8 @@ export class CanvasView {
       }
       if (
         next.nodes !== prev.nodes ||
+        next.zoomLevel !== prev.zoomLevel ||
+        next.viewportOffset !== prev.viewportOffset ||
         next.focusedNodeId !== prev.focusedNodeId ||
         next.selectedNodeIds !== prev.selectedNodeIds ||
         next.agents !== prev.agents
@@ -287,7 +291,7 @@ export class CanvasView {
             onAgent: (agent) => this.store.updateTerminalAgent(node.id, { agent }),
             onTitleChange: (title) => this.store.updateTerminalAgent(node.id, { oscTitle: title }),
             onActivity: (activity) => this.store.updateTerminalAgent(node.id, { activity }),
-            getZoom: () => this.store.getState().zoomLevel,
+            getZoom: () => 1,
           },
           node.initialCommand,
         )
@@ -434,11 +438,13 @@ export class CanvasView {
 
   private updateNodeElement(el: NodeElements, node: CanvasNodeState, s: CanvasData): void {
     const c = el.container
-    c.style.left = `${node.origin.x}px`
-    c.style.top = `${node.origin.y}px`
-    c.style.width = `${node.size.width}px`
-    c.style.height = `${node.size.height}px`
+    const zoom = s.zoomLevel
+    c.style.left = `${node.origin.x * zoom + s.viewportOffset.x}px`
+    c.style.top = `${node.origin.y * zoom + s.viewportOffset.y}px`
+    c.style.width = `${node.size.width * zoom}px`
+    c.style.height = `${node.size.height * zoom}px`
     c.style.zIndex = String(1000 + node.zOrder)
+    c.style.setProperty('--canvas-zoom', String(zoom))
 
     // Title + content. A terminal hosting a coding agent shows the agent's
     // session title (or its name) instead of the stored node title.
@@ -450,7 +456,10 @@ export class CanvasView {
           : t('defaultFile')
     const agentRec = node.kind === 'terminal' ? s.agents[node.id] : undefined
     el.titleEl.textContent = agentDisplayTitle(agentRec) ?? (node.title || fallbackTitle)
-    if (node.kind === 'terminal') this.syncAgentChrome(el, agentRec)
+    if (node.kind === 'terminal') {
+      el.terminal?.setCanvasZoom(zoom)
+      this.syncAgentChrome(el, agentRec)
+    }
 
     if (node.kind === 'note' && el.textarea) {
       const next = node.text ?? ''
@@ -736,12 +745,14 @@ export class CanvasView {
 
   private updateRegionElement(el: RegionElements, region: CanvasRegion, s: CanvasData): void {
     const c = el.container
-    c.style.left = `${region.origin.x}px`
-    c.style.top = `${region.origin.y}px`
-    c.style.width = `${region.size.width}px`
-    c.style.height = `${region.size.height}px`
+    const zoom = s.zoomLevel
+    c.style.left = `${region.origin.x * zoom + s.viewportOffset.x}px`
+    c.style.top = `${region.origin.y * zoom + s.viewportOffset.y}px`
+    c.style.width = `${region.size.width * zoom}px`
+    c.style.height = `${region.size.height * zoom}px`
     c.style.zIndex = String(region.zOrder)
     c.style.setProperty('--region-color', region.color)
+    c.style.setProperty('--canvas-zoom', String(zoom))
     if (document.activeElement !== el.labelText) {
       el.labelText.textContent = region.label
     }

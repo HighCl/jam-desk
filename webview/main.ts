@@ -137,12 +137,14 @@ canvasEl.appendChild(world)
 app.appendChild(canvasEl)
 
 // -----------------------------------------------------------------------------
-// World transform — canvasToView = p*zoom + offset, realized as
-// `scale(zoom) translate(offset/zoom)` on a 1×1 world div (origin 0,0).
+// World transform — CanvasView lays text-bearing nodes out in screen pixels.
+// Keeping the world unscaled avoids raster-scaled terminal/note/file text.
 // -----------------------------------------------------------------------------
 
 function applyTransform(zoom: number, offset: Point): void {
-  world.style.transform = `scale(${zoom}) translate(${offset.x / zoom}px, ${offset.y / zoom}px)`
+  void zoom
+  void offset
+  world.style.transform = ''
 }
 applyTransform(store.getState().zoomLevel, store.getState().viewportOffset)
 store.subscribe((next, prev) => {
