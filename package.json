@@ -2,7 +2,7 @@
   "name": "jam-desk",
   "displayName": "%jamDesk.displayName%",
   "description": "%jamDesk.description%",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "chamchi",
   "repository": {
     "url": "https://github.com/chamchi0809/jam-desk"
